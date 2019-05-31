@@ -199,27 +199,28 @@ class parser_:
     pass
 
 def main():
-    parser = parser_()
-    parser.device = '/cpu:0'  # '/gpu:0'
-    parser.dataset = 'miniboon' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
-    parser.learning_rate = np.float32(1e-2)
-    parser.batch_dim = 200
-    parser.clip_norm = 0.1
-    parser.epochs = 1000
-    parser.patience = 20
-    parser.cooldown = 10
-    parser.early_stopping = 100
-    parser.decay = 0.5
-    parser.min_lr = 5e-4
-    parser.polyak = 0.998
-    parser.flows = 5
-    parser.layers = 1
-    parser.hidden_dim = 10
-    parser.residual = 'gated'
-    parser.expname = ''
-    parser.load = None
-    parser.save = False
-    parser.tensorboard = 'tensorboard'
+    args = parser_()
+    args.device = '/cpu:0'  # '/gpu:0'
+    args.dataset = 'miniboon' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.learning_rate = np.float32(1e-2)
+    args.batch_dim = 200
+    args.clip_norm = 0.1
+    args.epochs = 1000
+    args.patience = 20
+    args.cooldown = 10
+    args.early_stopping = 100
+    args.decay = 0.5
+    args.min_lr = 5e-4
+    args.polyak = 0.998
+    args.flows = 5
+    args.layers = 1
+    args.hidden_dim = 10
+    args.residual = 'gated'
+    args.expname = ''
+    args.load = None
+    args.save = False
+    args.tensorboard = 'tensorboard'
+
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--device', type=str, default='cuda:0')
     # parser.add_argument('--dataset', type=str, default='miniboone',
