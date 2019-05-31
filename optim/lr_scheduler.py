@@ -3,12 +3,12 @@ import torch
 
 
 class ReduceLROnPlateau(torch.optim.lr_scheduler.ReduceLROnPlateau):
-    
+
     def __init__(self, *args, early_stopping=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.early_stopping = early_stopping
         self.early_stopping_counter = 0
-    
+
     def step(self, metrics, epoch=None, callback_best=None, callback_reduce=None):
         current = metrics
         if epoch is None:
@@ -35,5 +35,5 @@ class ReduceLROnPlateau(torch.optim.lr_scheduler.ReduceLROnPlateau):
             self._reduce_lr(epoch)
             self.cooldown_counter = self.cooldown
             self.num_bad_epochs = 0
-            
+
         return self.early_stopping_counter == self.early_stopping

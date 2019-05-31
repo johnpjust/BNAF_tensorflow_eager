@@ -15,7 +15,7 @@ class Adam(torch.optim.Optimizer):
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
         if not 0.0 <= polyak <= 1.0:
             raise ValueError("Invalid polyak decay term: {}".format(polyak))
-            
+
         defaults = dict(lr=lr, betas=betas, eps=eps,
                         weight_decay=weight_decay,
                         amsgrad=amsgrad, polyak=polyak)
@@ -36,7 +36,7 @@ class Adam(torch.optim.Optimizer):
         loss = None
         if closure is not None:
             loss = closure()
-        
+
         for group in self.param_groups:
             for p in group['params']:
                 if p.grad is None:
@@ -87,12 +87,12 @@ class Adam(torch.optim.Optimizer):
                 step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
                 p.data.addcdiv_(-step_size, exp_avg, denom)
-                
+
                 polyak = self.defaults['polyak']
                 state['exp_avg_param'] = polyak * state['exp_avg_param'] + (1 - polyak) * p.data
 
         return loss
-    
+
     def swap(self):
         """
         Swapping the running average of params and the current params for saving parameters using polyak averaging
@@ -103,9 +103,8 @@ class Adam(torch.optim.Optimizer):
                 new = p.data
                 p.data = state['exp_avg_param']
                 state['exp_avg_param'] = new
-                
+
     def substitute(self):
         for group in self.param_groups:
             for p in group['params']:
                 p.data = self.state[p]['exp_avg_param']
-                    

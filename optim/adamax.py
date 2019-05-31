@@ -22,7 +22,7 @@ class Adamax(torch.optim.Optimizer):
         super(Adamax, self).__init__(params, defaults)
 
     def step(self, closure=None):
-        
+
         loss = None
         if closure is not None:
             loss = closure()
@@ -66,12 +66,12 @@ class Adamax(torch.optim.Optimizer):
                 clr = group['lr'] / bias_correction
 
                 p.data.addcdiv_(-clr, exp_avg, exp_inf)
-                
+
                 polyak = self.defaults['polyak']
                 state['exp_avg_param'] = polyak * state['exp_avg_param'] + (1 - polyak) * p.data
 
         return loss
-    
+
     def swap(self):
         """
         Swapping the running average of params and the current params for saving parameters using polyak averaging
@@ -82,9 +82,8 @@ class Adamax(torch.optim.Optimizer):
                 new = p.data
                 p.data = state['exp_avg_param']
                 state['exp_avg_param'] = new
-                
+
     def substitute(self):
         for group in self.param_groups:
             for p in group['params']:
                 p.data = self.state[p]['exp_avg_param']
-                
