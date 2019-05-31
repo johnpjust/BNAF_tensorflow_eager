@@ -1,15 +1,20 @@
 
 import os
 import json
-import argparse
+# import argparse
 import pprint
 import datetime
-import torch
-from torch.utils import data
+# import torch
+import tensorflow as tf
+import numpy as np
+# from torch.utils import data
 from bnaf import *
-from tqdm import tqdm
-from optim.adam import Adam
-from optim.lr_scheduler import ReduceLROnPlateau
+# from tqdm import tqdm
+
+# from optim.adam import Adam
+# from optim.lr_scheduler import ReduceLROnPlateau
+
+
 
 from data.gas import GAS
 from data.bsds300 import BSDS300
@@ -190,39 +195,63 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             print('Test loss:       {:4.3f}'.format(test_loss.item()), file=f)
 
 
+class parser_:
+    pass
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--dataset', type=str, default='miniboone',
-                        choices=['gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
-
-    parser.add_argument('--learning_rate', type=float, default=1e-2)
-    parser.add_argument('--batch_dim', type=int, default=200)
-    parser.add_argument('--clip_norm', type=float, default=0.1)
-    parser.add_argument('--epochs', type=int, default=1000)
+    parser = parser_()
+    parser.device = '/cpu:0'  # '/gpu:0'
+    parser.dataset = 'miniboon' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    parser.learning_rate = np.float32(1e-2)
+    parser.batch_dim = 200
+    parser.clip_norm = 0.1
+    parser.epochs = 1000
+    parser.patience = 20
+    parser.cooldown = 10
+    parser.early_stopping = 100
+    parser.decay = 0.5
+    parser.min_lr = 5e-4
+    parser.polyak = 0.998
+    parser.flows = 5
+    parser.layers = 1
+    parser.hidden_dim = 10
+    parser.residual = 'gated'
+    parser.expname = ''
+    parser.load = None
+    parser.save = False
+    parser.tensorboard = 'tensorboard'
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--device', type=str, default='cuda:0')
+    # parser.add_argument('--dataset', type=str, default='miniboone',
+    #                     choices=['gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
+    #
+    # parser.add_argument('--learning_rate', type=float, default=1e-2)
+    # parser.add_argument('--batch_dim', type=int, default=200)
+    # parser.add_argument('--clip_norm', type=float, default=0.1)
+    # parser.add_argument('--epochs', type=int, default=1000)
+    #
+    # parser.add_argument('--patience', type=int, default=20)
+    # parser.add_argument('--cooldown', type=int, default=10)
+    # parser.add_argument('--early_stopping', type=int, default=100)
+    # parser.add_argument('--decay', type=float, default=0.5)
+    # parser.add_argument('--min_lr', type=float, default=5e-4)
+    # parser.add_argument('--polyak', type=float, default=0.998)
+    #
+    # parser.add_argument('--flows', type=int, default=5)
+    # parser.add_argument('--layers', type=int, default=1)
+    # parser.add_argument('--hidden_dim', type=int, default=10)
+    # parser.add_argument('--residual', type=str, default='gated',
+    #                    choices=[None, 'normal', 'gated'])
+    #
+    # parser.add_argument('--expname', type=str, default='')
+    # parser.add_argument('--load', type=str, default=None)
+    # parser.add_argument('--save', action='store_true')
+    # parser.add_argument('--tensorboard', type=str, default='tensorboard')
     
-    parser.add_argument('--patience', type=int, default=20)
-    parser.add_argument('--cooldown', type=int, default=10)
-    parser.add_argument('--early_stopping', type=int, default=100)
-    parser.add_argument('--decay', type=float, default=0.5)
-    parser.add_argument('--min_lr', type=float, default=5e-4)
-    parser.add_argument('--polyak', type=float, default=0.998)
+    # args = parser.parse_args()
 
-    parser.add_argument('--flows', type=int, default=5)
-    parser.add_argument('--layers', type=int, default=1)
-    parser.add_argument('--hidden_dim', type=int, default=10)
-    parser.add_argument('--residual', type=str, default='gated',
-                       choices=[None, 'normal', 'gated'])
-
-    parser.add_argument('--expname', type=str, default='')
-    parser.add_argument('--load', type=str, default=None)
-    parser.add_argument('--save', action='store_true')
-    parser.add_argument('--tensorboard', type=str, default='tensorboard')
-    
-    args = parser.parse_args()
-
-    print('Arguments:')
-    pprint.pprint(args.__dict__)
+    # print('Arguments:')
+    # pprint.pprint(args.__dict__)
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
