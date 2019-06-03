@@ -32,8 +32,14 @@ NAF_PARAMS = {
 
 
 def load_dataset(args):
+
+    #convert datasets
+    # data = pd.read_csv(r'C:\Users\just\PycharmProjects\BNAF\data\gas\ethylene_methane.txt', delim_whitespace=True, header='infer')
+    # data.to_pickle('data/gas/ethylene_methane.pickle')
+
     if args.dataset == 'gas':
-        dataset = GAS('data/gas/ethylene_CO.pickle')
+        # dataset = GAS('data/gas/ethylene_CO.pickle')
+        dataset = GAS('data/gas/ethylene_methane.pickle')
     elif args.dataset == 'bsds300':
         dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
     elif args.dataset == 'hepmass':
@@ -45,9 +51,20 @@ def load_dataset(args):
     else:
         raise RuntimeError()
 
-    dataset_train = torch.utils.data.TensorDataset(
-        torch.from_numpy(dataset.trn.x).float().to(args.device))
-    data_loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_dim, shuffle=True)
+    # dataset_train = torch.utils.data.TensorDataset(
+    #     torch.from_numpy(dataset.trn.x).float().to(args.device))
+    # data_loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_dim, shuffle=True)
+    #
+    # dataset_valid = torch.utils.data.TensorDataset(
+    #     torch.from_numpy(dataset.val.x).float().to(args.device))
+    # data_loader_valid = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batch_dim, shuffle=False)
+    #
+    # dataset_test = torch.utils.data.TensorDataset(
+    #     torch.from_numpy(dataset.tst.x).float().to(args.device))
+    # data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
+
+    dataset_train = tf.data.Dataset.from_tensor_slices(dataset.trn.x)#.float().to(args.device)
+    dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
 
     dataset_valid = torch.utils.data.TensorDataset(
         torch.from_numpy(dataset.val.x).float().to(args.device))
@@ -56,7 +73,7 @@ def load_dataset(args):
     dataset_test = torch.utils.data.TensorDataset(
         torch.from_numpy(dataset.tst.x).float().to(args.device))
     data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
-    
+
     args.n_dims = dataset.n_dims
     
     return data_loader_train, data_loader_valid, data_loader_test
@@ -199,6 +216,10 @@ class parser_:
     pass
 
 def main():
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    tf.enable_eager_execution(config=config)
+
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
     args.dataset = 'miniboon' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']

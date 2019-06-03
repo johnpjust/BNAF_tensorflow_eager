@@ -1,14 +1,13 @@
-
+import tensorflow as tf
 import math
 
-
-class Sequential(torch.nn.Sequential):
+class Sequential(tf.keras.models.Sequential):
     """
-    Class that extends ``torch.nn.Sequential`` for computing the output of 
+    Class that extends ``torch.nn.Sequential`` for computing the output of
     the function alongside with the log-det-Jacobian of such transformation.
     """
     
-    def forward(self, inputs : torch.Tensor):
+    def forward(self, inputs: tf.Tensor):
         """
         Parameters
         ----------
@@ -26,7 +25,7 @@ class Sequential(torch.nn.Sequential):
         return inputs, log_det_jacobian
 
 
-class BNAF(torch.nn.Sequential):
+class BNAF(tf.keras.models.Sequential):
     """
     Class that extends ``torch.nn.Sequential`` for constructing a Block Neural 
     Normalizing Flow.
@@ -49,9 +48,12 @@ class BNAF(torch.nn.Sequential):
         self.res = res
         
         if res == 'gated':
-            self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
+            with tf.variable_scope("parameters", reuse=tf.AUTO_REUSE):
+                self.gate = tf.get_variable('gate', initializer=tf.initializers.random_normal(1))
+            # self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
     
-    def forward(self, inputs : torch.Tensor):
+    def forward(self, inputs : tf.Tensor):
+
         """
         Parameters
         ----------
@@ -73,7 +75,7 @@ class BNAF(torch.nn.Sequential):
         assert inputs.shape[-1] == outputs.shape[-1]
         
         if self.res == 'normal':
-            return inputs + outputs, torch.nn.functional.softplus(grad.squeeze()).sum(-1)
+            return inputs + outputs, tf.keras.activations.softplus(grad.squeeze()).sum(-1)
         elif self.res == 'gated':
             return self.gate.sigmoid() * outputs + (1 - self.gate.sigmoid()) * inputs, \
                 (torch.nn.functional.softplus(grad.squeeze() + self.gate) - \
@@ -113,7 +115,7 @@ class Permutation(torch.nn.Module):
         else:
             self.p = p
         
-    def forward(self, inputs : torch.Tensor):
+    def forward(self, inputs : tf.Tensor):
         """
         Parameters
         ----------
@@ -153,12 +155,13 @@ class MaskedWeight(torch.nn.Module):
         super(MaskedWeight, self).__init__()
         self.in_features, self.out_features, self.dim = in_features, out_features, dim
 
-        weight = torch.zeros(out_features, in_features)
+        weight = tf.zeros(out_features, in_features)
         for i in range(dim):
             weight[i * out_features // dim:(i + 1) * out_features // dim,
                    0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
                 torch.Tensor(out_features // dim, (i + 1) * in_features // dim))
-            
+
+
         self._weight = torch.nn.Parameter(weight)
         self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
         
@@ -167,14 +170,14 @@ class MaskedWeight(torch.nn.Module):
                                    -1 / math.sqrt(out_features),
                                    1 / math.sqrt(out_features))) if bias else 0
         
-        mask_d = torch.zeros_like(weight)
+        mask_d = tf.zeros_like(weight)
         for i in range(dim):
             mask_d[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
 
         self.register_buffer('mask_d', mask_d)
             
-        mask_o = torch.ones_like(weight)
+        mask_o = tf.ones_like(weight)
         for i in range(dim):
             mask_o[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):] = 0
@@ -186,20 +189,22 @@ class MaskedWeight(torch.nn.Module):
         Computes the weight matrix using masks and weight normalization.
         It also compute the log diagonal blocks of it.
         """
-        
-        w = torch.exp(self._weight) * self.mask_d + self._weight * self.mask_o
+
+        ## take exponential of diagonal
+        w = tf.exp(self._weight) * self.mask_d + self._weight * self.mask_o
 
         w_squared_norm = (w ** 2).sum(-1, keepdim=True)
         
         w = self._diag_weight.exp() * w / w_squared_norm.sqrt()
         
-        wpl = self._diag_weight + self._weight - 0.5 * torch.log(w_squared_norm) 
+        wpl = self._diag_weight + self._weight - 0.5 * tf.log(w_squared_norm)
 
         return w.t(), wpl.t()[self.mask_d.byte().t()].view(
             self.dim, self.in_features // self.dim, self.out_features // self.dim)
 
 
-    def forward(self, inputs, grad : torch.Tensor = None):
+    # def forward(self, inputs, grad : torch.Tensor = None):
+    def forward(self, inputs: tf.Tensor, grad: tf.Tensor):
         """
         Parameters
         ----------
@@ -217,7 +222,9 @@ class MaskedWeight(torch.nn.Module):
         
         g = wpl.transpose(-2, -1).unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
         
-        return inputs.matmul(w) + self.bias, torch.logsumexp(
+        # return inputs.matmul(w) + self.bias, torch.logsumexp(
+        #     g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
+        return tf.matmul(inputs, w) + self.bias, tf.reduce_logsumexp(
             g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
 
     def __repr__(self):
@@ -225,13 +232,13 @@ class MaskedWeight(torch.nn.Module):
             self.in_features, self.out_features, self.dim, not isinstance(self.bias, int))
 
     
-class Tanh(torch.nn.Tanh):
+class Tanh(tf.tanh):
     """
     Class that extends ``torch.nn.Tanh`` additionally computing the log diagonal
     blocks of the Jacobian.
     """
 
-    def forward(self, inputs, grad : torch.Tensor = None):
+    def forward(self, inputs, grad : tf.Tensor = None):
         """
         Parameters
         ----------
@@ -245,6 +252,6 @@ class Tanh(torch.nn.Tanh):
         transformations combined with this transformation.
         """
         
-        g = - 2 * (inputs - math.log(2) + torch.nn.functional.softplus(- 2 * inputs))
-        return torch.tanh(inputs), (g.view(grad.shape) + grad) if grad is not None else g
+        g = - 2 * (inputs - math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
+        return tf.tanh(inputs), (g.view(grad.shape) + grad) if grad is not None else g
     
