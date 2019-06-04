@@ -39,7 +39,7 @@ def load_dataset(args):
 
     if args.dataset == 'gas':
         # dataset = GAS('data/gas/ethylene_CO.pickle')
-        dataset = GAS('data/gas/ethylene_methane.pickle')
+        dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
     elif args.dataset == 'bsds300':
         dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
     elif args.dataset == 'hepmass':
@@ -64,15 +64,19 @@ def load_dataset(args):
     # data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
 
     dataset_train = tf.data.Dataset.from_tensor_slices(dataset.trn.x)#.float().to(args.device)
-    dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    data_loader_train = tf.contrib.eager.Iterator(dataset_train)
+    ##data_loader_train.get_next()
 
-    dataset_valid = torch.utils.data.TensorDataset(
-        torch.from_numpy(dataset.val.x).float().to(args.device))
-    data_loader_valid = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batch_dim, shuffle=False)
+    dataset_valid = tf.data.Dataset.from_tensor_slices(dataset.val.x)#.float().to(args.device)
+    dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
+    ##data_loader_valid.get_next()
 
-    dataset_test = torch.utils.data.TensorDataset(
-        torch.from_numpy(dataset.tst.x).float().to(args.device))
-    data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
+    dataset_test = tf.data.Dataset.from_tensor_slices(dataset.tst.x)#.float().to(args.device)
+    dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    data_loader_test = tf.contrib.eager.Iterator(dataset_test)
+    ##data_loader_test.get_next()
 
     args.n_dims = dataset.n_dims
     
@@ -145,7 +149,7 @@ def load_model(model, optimizer, args, load_start_epoch=False):
 
 def compute_log_p_x(model, x_mb):
     y_mb, log_diag_j_mb = model(x_mb)
-    log_p_y_mb = torch.distributions.Normal(torch.zeros_like(y_mb), torch.ones_like(y_mb)).log_prob(y_mb).sum(-1)
+    log_p_y_mb = tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb).sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
 
