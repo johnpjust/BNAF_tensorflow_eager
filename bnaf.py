@@ -49,8 +49,7 @@ class BNAF(tf.keras.models.Sequential):
         self.res = res
         
         if res == 'gated':
-            with tf.variable_scope("parameters", reuse=tf.AUTO_REUSE):
-                self.gate = tf.get_variable('gate', initializer=tf.initializers.random_normal(1))
+            self.gate = tf.get_variable('gate', initializer=tf.initializers.random_normal(1))
             # self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
     
     def forward(self, inputs : tf.Tensor):
