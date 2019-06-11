@@ -1,5 +1,6 @@
 import tensorflow as tf
 import math
+import numpy as np
 
 class Sequential(tf.keras.models.Sequential):
     """
@@ -63,31 +64,33 @@ class BNAF(tf.keras.models.Sequential):
         -------
         The output tensor and the log-det-Jacobian of this transformation.
         """
-            
+
         outputs = inputs
         grad = None
-        
+
+        ### apply layers in TF and get gradients...module in pytorch == layers in tf
         for module in self._modules.values():
             outputs, grad = module(outputs, grad)
                 
             grad = grad if len(grad.shape) == 4 else grad.view(grad.shape + [1, 1])
-        
+
         assert inputs.shape[-1] == outputs.shape[-1]
         
         if self.res == 'normal':
-            return inputs + outputs, tf.keras.activations.softplus(grad.squeeze()).sum(-1)
+            return inputs + outputs, tf.reduce_sum(tf.keras.activations.softplus(tf.squeeze(grad)), axis=-1)
         elif self.res == 'gated':
-            return self.gate.sigmoid() * outputs + (1 - self.gate.sigmoid()) * inputs, \
-                (torch.nn.functional.softplus(grad.squeeze() + self.gate) - \
-                 torch.nn.functional.softplus(self.gate)).sum(-1)
+            return tf.nn.sigmoid(self.gate) * outputs + (1 - tf.nn.sigmoid(self.gate)) * inputs, \
+                tf.reduce_sum(tf.nn.softplus(tf.squeeze(grad) + self.gate) - \
+                 tf.nn.softplus(self.gate), axis=-1)
         else:
-            return outputs, grad.squeeze().sum(-1)
+            return outputs, tf.reduce_sum(tf.squeeze(grad), axis=-1)
         
     def _get_name(self):
         return 'BNAF(res={})'.format(self.res)
         
         
-class Permutation(torch.nn.Module):
+# class Permutation(torch.nn.Module):
+class Permutation(tf.keras.layers.Layer):
     """
     Module that outputs a permutation of its input.
     """
@@ -115,7 +118,7 @@ class Permutation(torch.nn.Module):
         else:
             self.p = p
         
-    def forward(self, inputs : tf.Tensor):
+    def call(self, inputs : tf.Tensor, **kwargs):
         """
         Parameters
         ----------
@@ -132,7 +135,8 @@ class Permutation(torch.nn.Module):
         return 'Permutation(in_features={}, p={})'.format(self.in_features, self.p)
     
     
-class MaskedWeight(torch.nn.Module):
+# class MaskedWeight(torch.nn.Module):
+class MaskedWeight(tf.keras.layers.Layer):
     """
     Module that implements a linear layer with block matrices with positive diagonal blocks.
     Moreover, it uses Weight Normalization (https://arxiv.org/abs/1602.07868) for stability.
@@ -151,20 +155,23 @@ class MaskedWeight(torch.nn.Module):
         bias : ``bool``, optional (default = True).
             Whether to add a parametrizable bias.
         """
-            
+
         super(MaskedWeight, self).__init__()
         self.in_features, self.out_features, self.dim = in_features, out_features, dim
 
-        weight = tf.zeros(out_features, in_features)
-        for i in range(dim):
-            weight[i * out_features // dim:(i + 1) * out_features // dim,
-                   0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
-                torch.Tensor(out_features // dim, (i + 1) * in_features // dim))
+        weight = np.zeros(out_features, in_features)
+        # for i in range(dim):
+        #     weight[i * out_features // dim:(i + 1) * out_features // dim,
+        #            0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
+        #         torch.Tensor(out_features // dim, (i + 1) * in_features // dim))
 
+        for i in range(dim):
+            weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
+                tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=False).numpy()
 
         self._weight = torch.nn.Parameter(weight)
         self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
-        
+
         self.bias = torch.nn.Parameter(
             torch.nn.init.uniform_(torch.Tensor(out_features), 
                                    -1 / math.sqrt(out_features),
@@ -190,8 +197,10 @@ class MaskedWeight(torch.nn.Module):
         It also compute the log diagonal blocks of it.
         """
 
-        ## take exponential of diagonal
-        w = tf.exp(self._weight) * self.mask_d + self._weight * self.mask_o
+        ### use triangular matrix for weights from tf.distributions to save the trouble here......
+
+        ## take exponential of diagonal and the unmodified value of everything else
+        w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
 
         w_squared_norm = (w ** 2).sum(-1, keepdim=True)
         
@@ -204,7 +213,7 @@ class MaskedWeight(torch.nn.Module):
 
 
     # def forward(self, inputs, grad : torch.Tensor = None):
-    def forward(self, inputs: tf.Tensor, grad: tf.Tensor):
+    def call(self, inputs: tf.Tensor, grad: tf.Tensor = None):
         """
         Parameters
         ----------
@@ -220,12 +229,13 @@ class MaskedWeight(torch.nn.Module):
         
         w, wpl = self.get_weights()
         
-        g = wpl.transpose(-2, -1).unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
+        # g = wpl.transpose(-2, -1).unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
+        g = tf.tile(tf.expand_dims(tf.transpose(wpl, perm=(-2, -1)), axis=0), (inputs.shape[0], 1, 1, 1))
         
         # return inputs.matmul(w) + self.bias, torch.logsumexp(
         #     g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
         return tf.matmul(inputs, w) + self.bias, tf.reduce_logsumexp(
-            g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
+            tf.expand_dims(g, axis=-2) + tf.expand_dims(tf.transpose(grad, perm=(-2, -1)), axis=-3), -1) if grad is not None else g
 
     def __repr__(self):
         return 'MaskedWeight(in_features={}, out_features={}, dim={}, bias={})'.format(
@@ -252,6 +262,9 @@ class Tanh(tf.tanh):
         transformations combined with this transformation.
         """
         
-        g = - 2 * (inputs - math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
-        return tf.tanh(inputs), (g.view(grad.shape) + grad) if grad is not None else g
+        # g = - 2 * (inputs - tf.math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
+        # return tf.tanh(inputs), (g.view(grad.shape) + grad) if grad is not None else g
+
+        g = - 2 * (inputs - tf.math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
+        return tf.tanh(inputs), (tf.reshape(g,grad.shape) + grad) if grad is not None else g
     
