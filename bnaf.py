@@ -8,7 +8,7 @@ class Sequential(tf.keras.models.Sequential):
     the function alongside with the log-det-Jacobian of such transformation.
     """
     
-    def forward(self, inputs: tf.Tensor):
+    def call(self, inputs: tf.Tensor):
         """
         Parameters
         ----------
@@ -20,8 +20,9 @@ class Sequential(tf.keras.models.Sequential):
         """
         
         log_det_jacobian = 0.
-        for i, module in enumerate(self._modules.values()):
-            inputs, log_det_jacobian_ = module(inputs)
+        # for i, module in enumerate(self._modules.values()):
+        for i, layer in enumerate(self.layers):
+            inputs, log_det_jacobian_ = layer(inputs)
             log_det_jacobian = log_det_jacobian + log_det_jacobian_
         return inputs, log_det_jacobian
 
@@ -52,7 +53,8 @@ class BNAF(tf.keras.models.Sequential):
             self.gate = tf.get_variable('gate', initializer=tf.initializers.random_normal(1))
             # self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
     
-    def forward(self, inputs : tf.Tensor):
+    # def forward(self, inputs : tf.Tensor):
+    def call(self, inputs: tf.Tensor):
 
         """
         Parameters
@@ -68,10 +70,10 @@ class BNAF(tf.keras.models.Sequential):
         grad = None
 
         ### apply layers in TF and get gradients...module in pytorch == layers in tf
-        for module in self._modules.values():
-            outputs, grad = module(outputs, grad)
-                
-            grad = grad if len(grad.shape) == 4 else grad.view(grad.shape + [1, 1])
+        # for module in self._modules.values(): #pytorch implementation
+        for layer in self.layers:
+            outputs, grad = layer(outputs, grad) #not sure if use "layer" or "layer.call"
+            grad = grad if len(grad.shape) == 4 else tf.reshape(grad, (grad.shape + [1, 1]))
 
         assert inputs.shape[-1] == outputs.shape[-1]
         
@@ -101,7 +103,7 @@ class Permutation(tf.keras.layers.Layer):
         in_features : ``int``, required.
             The number of input features.
         p : ``list`` or ``str``, optional (default = None)
-            The list of indeces that indicate the permutation. When ``p`` is not a
+            The list of indices that indicate the permutation. When ``p`` is not a
             list, if ``p = 'flip'``the tensor is reversed, if ``p = None`` a random 
             permutation is applied.
         """
@@ -168,27 +170,35 @@ class MaskedWeight(tf.keras.layers.Layer):
             weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
                 tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=False).numpy()
 
-        self._weight = torch.nn.Parameter(weight)
-        self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
-
-        self.bias = torch.nn.Parameter(
-            torch.nn.init.uniform_(torch.Tensor(out_features), 
-                                   -1 / math.sqrt(out_features),
-                                   1 / math.sqrt(out_features))) if bias else 0
+        with tf.variable_scope("params", reuse=False):
+            self._weight = tf.get_variable("off_diagonal", initializer=weight)
         
+            # self._weight = torch.nn.Parameter(weight)
+            # self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
+            self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform())) #maybe takes log because we're going to take exp later?
+
+            # self.bias = torch.nn.Parameter(
+            #     torch.nn.init.uniform_(torch.Tensor(out_features),
+            #                            -1 / math.sqrt(out_features),
+            #                            1 / math.sqrt(out_features))) if bias else 0
+
+            self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
+
         mask_d = tf.zeros_like(weight)
         for i in range(dim):
             mask_d[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
 
-        self.register_buffer('mask_d', mask_d)
-            
+        # self.register_buffer('mask_d', mask_d)
+        self.mask_d = tf.constant('mask_d', mask_d)
+
         mask_o = tf.ones_like(weight)
         for i in range(dim):
             mask_o[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):] = 0
             
-        self.register_buffer('mask_o', mask_o)
+        # self.register_buffer('mask_o', mask_o)
+        self.mask_o = tf.constant('mask_o', mask_o)
 
     def get_weights(self):
         """
@@ -203,12 +213,15 @@ class MaskedWeight(tf.keras.layers.Layer):
 
         w_squared_norm = (w ** 2).sum(-1, keepdim=True)
         
-        w = self._diag_weight.exp() * w / w_squared_norm.sqrt()
+        w = tf.exp(self._diag_weight) * w / tf.sqrt(w_squared_norm)
         
         wpl = self._diag_weight + self._weight - 0.5 * tf.log(w_squared_norm)
 
-        return w.t(), wpl.t()[self.mask_d.byte().t()].view(
-            self.dim, self.in_features // self.dim, self.out_features // self.dim)
+        # return tf.transpose(w), tf.transpose(wpl)[self.mask_d.byte().t()].view(
+        #     self.dim, self.in_features // self.dim, self.out_features // self.dim)
+
+        return tf.transpose(w), tf.reshape(tf.transpose(wpl)[tf.transpose(tf.cast(self.mask_d, tf.uint8))],(
+            self.dim, self.in_features // self.dim, self.out_features // self.dim))
 
 
     # def forward(self, inputs, grad : torch.Tensor = None):
@@ -241,13 +254,13 @@ class MaskedWeight(tf.keras.layers.Layer):
             self.in_features, self.out_features, self.dim, not isinstance(self.bias, int))
 
     
-class Tanh(tf.tanh):
+class Tanh(tf.keras.layers.Layer):
     """
     Class that extends ``torch.nn.Tanh`` additionally computing the log diagonal
     blocks of the Jacobian.
     """
 
-    def forward(self, inputs, grad : tf.Tensor = None):
+    def call(self, inputs, grad : tf.Tensor = None):
         """
         Parameters
         ----------

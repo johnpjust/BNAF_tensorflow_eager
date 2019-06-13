@@ -6,6 +6,7 @@ import pprint
 import datetime
 # import torch
 import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
 # from torch.utils import data
 from bnaf import *
@@ -149,7 +150,7 @@ def load_model(model, optimizer, args, load_start_epoch=False):
 
 def compute_log_p_x(model, x_mb):
     y_mb, log_diag_j_mb = model(x_mb)
-    log_p_y_mb = tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb).sum(-1)
+    log_p_y_mb = tf.reduce_sum(tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
 
