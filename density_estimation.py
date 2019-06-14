@@ -88,12 +88,16 @@ def create_model(args, verbose=False):
 
     flows = []
     for f in range(args.flows):
+
+        #build internal layers for a single flow
         layers = []
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
                                        args.n_dims * args.hidden_dim, dim=args.n_dims))
             layers.append(Tanh())
 
+        ## wrap each flow with layers that ensure consistency in dimensions.  Math to divide out the hidden_dimensions
+        # units is performed in the MaskedWeight layer
         flows.append(
             BNAF(*([MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
                    layers + \
@@ -105,9 +109,9 @@ def create_model(args, verbose=False):
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
 
-    model = Sequential(*flows).to(args.device)
-    params = sum((p != 0).sum() if len(p.shape) > 1 else torch.tensor(p.shape).item()
-                 for p in model.parameters()).item()
+        model = Sequential(*flows)
+        params = sum(sum(p != 0) if len(p.shape) > 1 else p.shape
+                     for p in model.trainable_variables())
     
     if verbose:
         print('{}'.format(model))
@@ -121,34 +125,28 @@ def create_model(args, verbose=False):
     
     return model
 
-
-def save_model(model, optimizer, epoch, args):
+def save_model(args, root):
     def f():
         if args.save:
             print('Saving model..')
-            torch.save({
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch
-            }, os.path.join(args.load or args.path, 'checkpoint.pt'))
-        
+            root.save(os.path.join(args.load or args.path, 'checkpoint.pt'))
     return f
     
     
-def load_model(model, optimizer, args, load_start_epoch=False):
+def load_model(model, optimizer, args, root, load_start_epoch=False):
     def f():
         print('Loading model..')
-        checkpoint = torch.load(os.path.join(args.load or args.path, 'checkpoint.pt'))
-        model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        
+        # root.restore(tf.train.latest_checkpoint(checkpoint_dir))
+        root.restore(os.path.join(args.load or args.path, 'checkpoint.pt'))
         if load_start_epoch:
-            args.start_epoch = checkpoint['epoch']
-            
+            args.start_epoch = tf.train.get_global_step().numpy()
     return f
 
 
 def compute_log_p_x(model, x_mb):
+
+    ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
+
     y_mb, log_diag_j_mb = model(x_mb)
     log_p_y_mb = tf.reduce_sum(tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
@@ -156,10 +154,6 @@ def compute_log_p_x(model, x_mb):
 
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     
-    if args.tensorboard:
-        from tensorboardX import SummaryWriter
-        writer = SummaryWriter(os.path.join(args.tensorboard, args.load or args.path))
-        
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
@@ -167,16 +161,20 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         train_loss = []
         
         for x_mb, in t:
-            loss = - compute_log_p_x(model, x_mb).mean()
+            with tf.GradientTape() as tape:
+                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_norm)
+            optimizer.com
+            tf.clip_grad_norm_(model.parameters(), clip_norm=args.clip_norm)
 
             optimizer.step()
             optimizer.zero_grad()
             
             t.set_postfix(loss='{:.2f}'.format(loss.item()), refresh=False)
             train_loss.append(loss)
+
+            global_step.assign_add(1)
         
         train_loss = torch.stack(train_loss).mean()
         optimizer.swap()
@@ -188,14 +186,17 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             epoch + 1, args.start_epoch + args.epochs, train_loss.item(), validation_loss.item()))
 
         stop = scheduler.step(validation_loss,
-            callback_best=save_model(model, optimizer, epoch + 1, args),
+            callback_best=save_model(args),
             callback_reduce=load_model(model, optimizer, args))
         
         if args.tensorboard:
-            writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
-            writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
-            writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
-        
+            with tf.contrib.summary.always_record_summaries():
+                tf.contrib.summary.scalar('loss/validation', validation_loss.item(), epoch + 1)
+                tf.contrib.summary.scalar('loss/train', train_loss.item(), epoch + 1)
+                # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
+                # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
+                # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
+
         if stop:
             break
             
@@ -223,6 +224,7 @@ class parser_:
 def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
+    config.log_device_placement = True
     tf.enable_eager_execution(config=config)
 
     args = parser_()
@@ -295,11 +297,13 @@ def main():
             json.dump(args.__dict__, f, indent=4, sort_keys=True)
     
     print('Creating BNAF model..')
-    model = create_model(args, verbose=True)
+    with tf.device('/cpu:0'):
+        model = create_model(args, verbose=True)
 
     print('Creating optimizer..')
-    optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
-    
+    optimizer = tf.train.AdamOptimizer()
+    # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
+
     print('Creating scheduler..')
     scheduler = ReduceLROnPlateau(optimizer, factor=args.decay,
                                   patience=args.patience, cooldown=args.cooldown,
@@ -307,12 +311,23 @@ def main():
                                   early_stopping=args.early_stopping,
                                   threshold_mode='abs')
 
+    ## tensorboard and saving
+    writer = tf.contrib.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
+    writer.set_as_default()
+    root = tf.train.Checkpoint(optimizer=optimizer,
+                               model=model,
+                               optimizer_step=tf.train.get_or_create_global_step())
+
     args.start_epoch = 0
     if args.load:
-        load_model(model, optimizer, args, load_start_epoch=True)()
-                
+        load_model(model, optimizer, args, root, load_start_epoch=True)
+
+    with tf.device('/cpu:0'):
+        global_step = tf.train.get_or_create_global_step()
+        # global_step.assign(0)
+
     print('Training..')
-    train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+    train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
 
 
 if __name__ == '__main__':

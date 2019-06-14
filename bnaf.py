@@ -206,12 +206,11 @@ class MaskedWeight(tf.keras.layers.Layer):
         It also compute the log diagonal blocks of it.
         """
 
-        ### use triangular matrix for weights from tf.distributions to save the trouble here......
+        # error in original here i think -- should be self._diag_weight or w_squared_norm is not correct
+        # w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
+        w = tf.multiply(tf.exp(tf.diag(self._diag_weight)), self.mask_d) + tf.multiply(self._weight, self.mask_o)
 
-        ## take exponential of diagonal and the unmodified value of everything else
-        w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
-
-        w_squared_norm = (w ** 2).sum(-1, keepdim=True)
+        w_squared_norm = tf.reduce_sum(tf.math.square(w), axis=-1, keepdims=True)
         
         w = tf.exp(self._diag_weight) * w / tf.sqrt(w_squared_norm)
         
