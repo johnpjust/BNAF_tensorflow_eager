@@ -4,9 +4,8 @@ Tensorflow implementation of Block Neural Autoregressive Flow based on:
 
 ## Requirements
 * **``python>=3.6``** (it will probably work on older versions but I have not tested on them)
-* **``pytorch>=1.0.0``**
 
-Optional for visualization and plotting: ``numpy``, ``matplotlib`` and ``tensorboardX``
+Optional for visualization and plotting: ``numpy``, ``matplotlib``
 
 ## Structure
 * [bnaf.py](https://github.com/nicola-decao/BNAF/blob/master/bnaf.py): Implementation of Block Neural Normalzing Flow.
