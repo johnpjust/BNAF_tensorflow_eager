@@ -133,7 +133,7 @@ def save_model(args, root):
     return f
     
     
-def load_model(model, optimizer, args, root, load_start_epoch=False):
+def load_model(args, root, load_start_epoch=False):
     def f():
         print('Loading model..')
         # root.restore(tf.train.latest_checkpoint(checkpoint_dir))
@@ -146,7 +146,6 @@ def load_model(model, optimizer, args, root, load_start_epoch=False):
 def compute_log_p_x(model, x_mb):
 
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
-
     y_mb, log_diag_j_mb = model(x_mb)
     log_p_y_mb = tf.reduce_sum(tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
@@ -320,7 +319,7 @@ def main():
 
     args.start_epoch = 0
     if args.load:
-        load_model(model, optimizer, args, root, load_start_epoch=True)
+        load_model(args, root, load_start_epoch=True)
 
     with tf.device('/cpu:0'):
         global_step = tf.train.get_or_create_global_step()

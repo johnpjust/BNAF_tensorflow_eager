@@ -1,5 +1,5 @@
 # BNAF
-Pytorch implementation of Block Neural Autoregressive Flow based on our paper:
+Tensorflow implementation of Block Neural Autoregressive Flow based on :
 > De Cao Nicola, Titov Ivan and Aziz Wilker, [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
 
 ## Requirements
