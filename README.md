@@ -1,6 +1,5 @@
 # BNAF
-Pytorch implementation of Block Neural Autoregressive Flow based on our paper:
-> De Cao Nicola, Titov Ivan and Aziz Wilker, [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
+Tensorflow Eager implementation of Block Neural Autoregressive Flow based on : [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
 
 ## Requirements
 * **``python>=3.6``** (it will probably work on older versions but I have not tested on them)
