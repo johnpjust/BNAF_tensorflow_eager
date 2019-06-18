@@ -10,11 +10,11 @@ import tensorflow_probability as tfp
 import numpy as np
 # from torch.utils import data
 from bnaf import *
+from data.generate2d import sample2d, energy2d
 # from tqdm import tqdm
 
 # from optim.adam import Adam
 # from optim.lr_scheduler import ReduceLROnPlateau
-
 
 
 from data.gas import GAS
@@ -64,38 +64,37 @@ def load_dataset(args):
     #     torch.from_numpy(dataset.tst.x).float().to(args.device))
     # data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
 
-    dataset_train = tf.data.Dataset.from_tensor_slices(dataset.trn.x)#.float().to(args.device)
-    dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    data_loader_train = tf.contrib.eager.Iterator(dataset_train)
+    dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
+    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
     ##data_loader_train.get_next()
 
-    dataset_valid = tf.data.Dataset.from_tensor_slices(dataset.val.x)#.float().to(args.device)
-    dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
+    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
+    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
     ##data_loader_valid.get_next()
 
-    dataset_test = tf.data.Dataset.from_tensor_slices(dataset.tst.x)#.float().to(args.device)
-    dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    data_loader_test = tf.contrib.eager.Iterator(dataset_test)
+    dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
+    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
     ##data_loader_test.get_next()
 
     args.n_dims = dataset.n_dims
     
-    return data_loader_train, data_loader_valid, data_loader_test
-
+    return dataset_train, dataset_valid, dataset_test
 
 def create_model(args, verbose=False):
-
     flows = []
     for f in range(args.flows):
-
         #build internal layers for a single flow
         layers = []
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
                                        args.n_dims * args.hidden_dim, dim=args.n_dims))
             layers.append(Tanh())
-
         ## wrap each flow with layers that ensure consistency in dimensions.  Math to divide out the hidden_dimensions
         # units is performed in the MaskedWeight layer
         flows.append(
@@ -147,42 +146,74 @@ def compute_log_p_x(model, x_mb):
 
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
     y_mb, log_diag_j_mb = model(x_mb)
-    log_p_y_mb = tf.reduce_sum(tf.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
+    log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
+def compute_kl(model, args):
+    d_mb = tfp.distributions.Normal(tf.zeros((args.batch_dim, 2)),
+                                      tf.ones((args.batch_dim, 2)))
+    y_mb = d_mb.sample()
+    x_mb, log_diag_j_mb = model(y_mb)
+    log_p_y_mb = tf.reduce_sum(d_mb.log_prob(y_mb), axis=-1)
+    return log_p_y_mb - log_diag_j_mb + energy2d(args.dataset, x_mb) + tf.reduce_sum(tf.nn.relu(x_mb.abs() - 6) ** 2, axis=-1)
+
+# def train_density2d(model, optimizer, scheduler, args):
+#     iterator = trange(args.steps, smoothing=0, dynamic_ncols=True)
+#     for epoch in iterator:
+#         x_mb = torch.from_numpy(sample2d(args.dataset, args.batch_dim)).float().to(args.device)
+#
+#         loss = - compute_log_p_x(model, x_mb).mean()
+#
+#         loss.backward()
+#         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_norm)
+#
+#         optimizer.step()
+#         optimizer.zero_grad()
+#
+#         scheduler.step(loss)
+#
+#         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
+#
+#
+# def train_energy2d(model, optimizer, scheduler, args):
+#     iterator = trange(args.steps, smoothing=0, dynamic_ncols=True)
+#     for epoch in iterator:
+#         loss = compute_kl(model, args).mean()
+#
+#         loss.backward()
+#         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_norm)
+#
+#         optimizer.step()
+#         optimizer.zero_grad()
+#
+#         scheduler.step(loss)
+#
+#         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
 
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
-        t = tqdm(data_loader_train, smoothing=0, ncols=80)
+        # t = tqdm(data_loader_train, smoothing=0, ncols=80)
         train_loss = []
         
-        for x_mb, in t:
+        for x_mb in data_loader_train:
             with tf.GradientTape() as tape:
                 loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
 
-            loss.backward()
-            optimizer.com
-            tf.clip_grad_norm_(model.parameters(), clip_norm=args.clip_norm)
+            grads = tape.gradient(loss, model.trainable_variables)
+            grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
+            optimizer.apply_gradients(zip(grads, model.trainable_variables), global_step=tf.train.get_global_step())
 
-            optimizer.step()
-            optimizer.zero_grad()
-            
-            t.set_postfix(loss='{:.2f}'.format(loss.item()), refresh=False)
             train_loss.append(loss)
 
-            global_step.assign_add(1)
-        
-        train_loss = torch.stack(train_loss).mean()
-        optimizer.swap()
-        validation_loss = - torch.stack([compute_log_p_x(model, x_mb).mean().detach()
-                                         for x_mb, in data_loader_valid], -1).mean()
-        optimizer.swap()
+            # global_step.assign_add(1)
+
+        validation_loss = - torch.stack([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid], -1).mean()
 
         print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
-            epoch + 1, args.start_epoch + args.epochs, train_loss.item(), validation_loss.item()))
+            epoch + 1, args.start_epoch + args.epochs, np.mean(train_loss), validation_loss.item()))
 
         stop = scheduler.step(validation_loss,
             callback_best=save_model(args),
@@ -190,8 +221,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         
         if args.tensorboard:
             with tf.contrib.summary.always_record_summaries():
-                tf.contrib.summary.scalar('loss/validation', validation_loss.item(), epoch + 1)
-                tf.contrib.summary.scalar('loss/train', train_loss.item(), epoch + 1)
+                tf.contrib.summary.scalar('loss/validation', validation_loss.item())
+                tf.contrib.summary.scalar('loss/train', train_loss.item())
                 # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
                 # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
                 # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
@@ -326,7 +357,12 @@ def main():
         # global_step.assign(0)
 
     print('Training..')
-    train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
+    if args.experiment == 'density2d':
+        train_density2d(model, optimizer, scheduler, args)
+    elif args.experiment == 'energy2d':
+        train_energy2d(model, optimizer, scheduler, args)
+    else:
+        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
 
 
 if __name__ == '__main__':
