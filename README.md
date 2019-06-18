@@ -1,5 +1,5 @@
 # BNAF
-Tensorflow implementation of Block Neural Autoregressive Flow based on:
+Tensorflow Eager Execution implementation of Block Neural Autoregressive Flow based on:
 > De Cao Nicola, Titov Ivan and Aziz Wilker, [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
 
 ## Requirements
@@ -8,7 +8,7 @@ Tensorflow implementation of Block Neural Autoregressive Flow based on:
 Optional for visualization and plotting: ``numpy``, ``matplotlib``
 
 ## Structure
-* this has been adapted from the original to work with Tensorflow Eager Execution, improve optimization, fix some mistakes in the implementation, and eliminate things like normalization layers to help condense the articture to minimal size for embedded applications.
+* This has been adapted from the original to work with Tensorflow Eager Execution, improve optimization, fix some mistakes in the implementation, and eliminate things like normalization layers to help condense the articture to minimal size for embedded applications.
 
 ## Usage
 Below, example commands are given for running experiments.
