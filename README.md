@@ -14,4 +14,4 @@ Optional for visualization and plotting: ``numpy``, ``matplotlib``
 Below, example commands are given for running experiments.
 
 ## License
-MIT
+MIT_
