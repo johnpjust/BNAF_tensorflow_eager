@@ -1,20 +1,21 @@
 
 import os
 import json
-# import argparse
 import pprint
 import datetime
-# import torch
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-# from torch.utils import data
 from bnaf import *
-from data.generate2d import sample2d, energy2d
-# from tqdm import tqdm
+from optim.lr_scheduler import *
 
+# import argparse
+# import torch
+# from torch.utils import data
+# from data.generate2d import sample2d, energy2d
+# from tqdm import tqdm
 # from optim.adam import Adam
-# from optim.lr_scheduler import ReduceLROnPlateau
+
 
 
 from data.gas import GAS
@@ -124,14 +125,6 @@ def create_model(args, verbose=False):
     
     return model
 
-def save_model(args, root):
-    def f():
-        if args.save:
-            print('Saving model..')
-            root.save(os.path.join(args.load or args.path, 'checkpoint.pt'))
-    return f
-    
-    
 def load_model(args, root, load_start_epoch=False):
     def f():
         print('Loading model..')
@@ -200,7 +193,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         
         for x_mb in data_loader_train:
             with tf.GradientTape() as tape:
-                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
+                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb)) #negative -> minimize to maximize liklihood
 
             grads = tape.gradient(loss, model.trainable_variables)
             grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
@@ -209,33 +202,28 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             train_loss.append(loss)
 
             # global_step.assign_add(1)
+        train_loss = np.mean(train_loss)
+        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid])
 
-        validation_loss = - torch.stack([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid], -1).mean()
+        # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
+        #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
 
-        print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
-            epoch + 1, args.start_epoch + args.epochs, np.mean(train_loss), validation_loss.item()))
 
-        stop = scheduler.step(validation_loss,
-            callback_best=save_model(args),
-            callback_reduce=load_model(model, optimizer, args))
-        
+        stop = scheduler.on_epoch_end(epoch = tf.train.get_global_step().numpy())
+
         if args.tensorboard:
             with tf.contrib.summary.always_record_summaries():
-                tf.contrib.summary.scalar('loss/validation', validation_loss.item())
-                tf.contrib.summary.scalar('loss/train', train_loss.item())
+                tf.contrib.summary.scalar('loss/validation', validation_loss)
+                tf.contrib.summary.scalar('loss/train', train_loss)
                 # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
                 # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
                 # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
 
         if stop:
             break
-            
-    load_model(model, optimizer, args)()
-    optimizer.swap()
-    validation_loss = - torch.stack([compute_log_p_x(model, x_mb).mean().detach()
-                                     for x_mb, in data_loader_valid], -1).mean()
-    test_loss = - torch.stack([compute_log_p_x(model, x_mb).mean().detach()
-                           for x_mb, in data_loader_test], -1).mean()
+
+    validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid])
+    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_train])
 
     print('###### Stop training after {} epochs!'.format(epoch + 1))
     print('Validation loss: {:4.3f}'.format(validation_loss.item()))
@@ -246,7 +234,6 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
             print('Validation loss: {:4.3f}'.format(validation_loss.item()), file=f)
             print('Test loss:       {:4.3f}'.format(test_loss.item()), file=f)
-
 
 class parser_:
     pass
@@ -318,7 +305,8 @@ def main():
         str(datetime.datetime.now())[:-7].replace(' ', '-').replace(':', '-')))
 
     print('Loading dataset..')
-    data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
+    with tf.device('/cpu:0'):
+        data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
     
     if args.save and not args.load:
         print('Creating directory experiment..')
@@ -331,15 +319,11 @@ def main():
         model = create_model(args, verbose=True)
 
     print('Creating optimizer..')
-    optimizer = tf.train.AdamOptimizer()
+    with tf.device('/cpu:0'):
+        optimizer = tf.train.AdamOptimizer()
     # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
 
-    print('Creating scheduler..')
-    scheduler = ReduceLROnPlateau(optimizer, factor=args.decay,
-                                  patience=args.patience, cooldown=args.cooldown,
-                                  min_lr=args.min_lr, verbose=True,
-                                  early_stopping=args.early_stopping,
-                                  threshold_mode='abs')
+
 
     ## tensorboard and saving
     writer = tf.contrib.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
@@ -353,16 +337,21 @@ def main():
         load_model(args, root, load_start_epoch=True)
 
     with tf.device('/cpu:0'):
-        global_step = tf.train.get_or_create_global_step()
+        tf.train.get_or_create_global_step()
         # global_step.assign(0)
 
-    print('Training..')
-    if args.experiment == 'density2d':
-        train_density2d(model, optimizer, scheduler, args)
-    elif args.experiment == 'energy2d':
-        train_energy2d(model, optimizer, scheduler, args)
-    else:
-        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
+    print('Creating scheduler..')
+    # use baseline to avoid saving early on
+    scheduler = EarlyStopping(model=model, patience=10, args = args, root = root)
+
+    with tf.device('/cpu:0'):
+        print('Training..')
+        if args.experiment == 'density2d':
+            train_density2d(model, optimizer, scheduler, args)
+        elif args.experiment == 'energy2d':
+            train_energy2d(model, optimizer, scheduler, args)
+        else:
+            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
 
 
 if __name__ == '__main__':
