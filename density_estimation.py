@@ -32,7 +32,6 @@ NAF_PARAMS = {
     'bsds300': (36759591, 73510236)
 }
 
-
 def load_dataset(args):
 
     #convert datasets
@@ -98,20 +97,28 @@ def create_model(args, verbose=False):
             layers.append(Tanh())
         ## wrap each flow with layers that ensure consistency in dimensions.  Math to divide out the hidden_dimensions
         # units is performed in the MaskedWeight layer
+        # flows.append(
+        #     BNAF(*([MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
+        #            layers + \
+        #            [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims)]),\
+        #          res=args.residual if f < args.flows - 1 else None
+        #     )
+        # )
+
         flows.append(
-            BNAF(*([MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
-                   layers + \
-                   [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims)]),\
-                 res=args.residual if f < args.flows - 1 else None
-            )
+            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
+               layers + \
+               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims)], \
+             res=args.residual if f < args.flows - 1 else None
+             )
         )
 
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
 
-        model = Sequential(*flows)
-        params = sum(sum(p != 0) if len(p.shape) > 1 else p.shape
-                     for p in model.trainable_variables())
+        model = Sequential(flows)
+        params = np.sum(np.sum(p.numpy() != 0) if len(p.numpy().shape) > 1 else p.numpy().shape
+                     for p in model.trainable_variables)[0]
     
     if verbose:
         print('{}'.format(model))

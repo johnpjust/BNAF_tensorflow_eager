@@ -8,7 +8,8 @@ class Sequential(tf.keras.models.Sequential):
     the function alongside with the log-det-Jacobian of such transformation.
     """
     
-    def call(self, inputs: tf.Tensor):
+    # def call(self, inputs: tf.Tensor):
+    def call(self, inputs, training=None, mask=None):
         """
         Parameters
         ----------
@@ -32,8 +33,9 @@ class BNAF(tf.keras.models.Sequential):
     Class that extends ``torch.nn.Sequential`` for constructing a Block Neural 
     Normalizing Flow.
     """
-    
-    def __init__(self, *args, res: str = None):
+
+    def __init__(self, layers=None, name=None, res: str = None):
+    # def __init__(self, *args, res: str = None):
         """
         Parameters
         ----------
@@ -45,16 +47,26 @@ class BNAF(tf.keras.models.Sequential):
             ``a * x + (1 - a) * f(x)`` where ``a`` is a learnable parameter.
         """
         
-        super(BNAF, self).__init__(*args)
-        
+        # super(BNAF, self).__init__(*args)
+        super(BNAF, self).__init__(name=name)
+        self.supports_masking = True
+        self._build_input_shape = None
+        self._compute_output_and_mask_jointly = True
+
+        # Add to the model any layers passed to the constructor.
+        if layers:
+          for layer in layers:
+            self.add(layer)
+
         self.res = res
         
         if res == 'gated':
-            self.gate = tf.get_variable('gate', initializer=tf.initializers.random_normal(1))
+            self.gate = tf.get_variable(name='gate', shape=1, initializer=tf.initializers.random_normal)
             # self.gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(1)))
     
     # def forward(self, inputs : tf.Tensor):
-    def call(self, inputs: tf.Tensor):
+    # def call(self, inputs: tf.Tensor):
+    def call(self, inputs, training=None, mask=None):
 
         """
         Parameters
@@ -74,6 +86,8 @@ class BNAF(tf.keras.models.Sequential):
         for layer in self.layers:
             outputs, grad = layer(outputs, grad) #not sure if use "layer" or "layer.call"
             grad = grad if len(grad.shape) == 4 else tf.reshape(grad, (grad.shape + [1, 1]))
+
+        # return outputs, grad ## debug
 
         assert inputs.shape[-1] == outputs.shape[-1]
         
@@ -190,7 +204,7 @@ class MaskedWeight(tf.keras.layers.Layer):
                    i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
 
         # self.register_buffer('mask_d', mask_d)
-        self.mask_d = tf.constant(name='mask_d', value=mask_d)
+        self.mask_d = tf.constant(name='mask_d', value=mask_d, dtype=tf.float32)
 
         mask_o = np.ones_like(weight)
         for i in range(dim):
@@ -198,7 +212,7 @@ class MaskedWeight(tf.keras.layers.Layer):
                    i * (in_features // dim):] = 0
             
         # self.register_buffer('mask_o', mask_o)
-        self.mask_o = tf.constant(name='mask_o', value=mask_o)
+        self.mask_o = tf.constant(name='mask_o', value=mask_o, dtype=tf.float32)
 
     def get_weights(self):
         """
