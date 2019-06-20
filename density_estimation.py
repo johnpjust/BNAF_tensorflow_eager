@@ -117,7 +117,7 @@ def create_model(args, verbose=False):
         print('{}'.format(model))
         print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params, 
             NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims))
-                
+
     if args.save and not args.load:
         with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
             print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params, 
@@ -209,7 +209,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
 
 
-        stop = scheduler.on_epoch_end(epoch = tf.train.get_global_step().numpy())
+        stop = scheduler.on_epoch_end(epoch = epoch)
 
         if args.tensorboard:
             with tf.contrib.summary.always_record_summaries():
@@ -223,17 +223,17 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             break
 
     validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid])
-    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_train])
+    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_test])
 
     print('###### Stop training after {} epochs!'.format(epoch + 1))
-    print('Validation loss: {:4.3f}'.format(validation_loss.item()))
-    print('Test loss:       {:4.3f}'.format(test_loss.item()))
+    print('Validation loss: {:4.3f}'.format(validation_loss))
+    print('Test loss:       {:4.3f}'.format(test_loss))
     
     if args.save:
         with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
             print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
-            print('Validation loss: {:4.3f}'.format(validation_loss.item()), file=f)
-            print('Test loss:       {:4.3f}'.format(test_loss.item()), file=f)
+            print('Validation loss: {:4.3f}'.format(validation_loss), file=f)
+            print('Test loss:       {:4.3f}'.format(test_loss), file=f)
 
 class parser_:
     pass
@@ -246,7 +246,7 @@ def main():
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'miniboon' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'miniboone' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 200
     args.clip_norm = 0.1
@@ -256,7 +256,6 @@ def main():
     args.early_stopping = 100
     args.decay = 0.5
     args.min_lr = 5e-4
-    args.polyak = 0.998
     args.flows = 5
     args.layers = 1
     args.hidden_dim = 10
@@ -351,8 +350,7 @@ def main():
         elif args.experiment == 'energy2d':
             train_energy2d(model, optimizer, scheduler, args)
         else:
-            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args, root)
-
+            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
 
 if __name__ == '__main__':
     main()

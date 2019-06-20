@@ -160,7 +160,7 @@ class MaskedWeight(tf.keras.layers.Layer):
         super(MaskedWeight, self).__init__()
         self.in_features, self.out_features, self.dim = in_features, out_features, dim
 
-        weight = np.zeros(out_features, in_features)
+        weight = np.zeros((out_features, in_features))
         # for i in range(dim):
         #     weight[i * out_features // dim:(i + 1) * out_features // dim,
         #            0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
@@ -184,21 +184,21 @@ class MaskedWeight(tf.keras.layers.Layer):
 
             self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
 
-        mask_d = tf.zeros_like(weight)
+        mask_d = np.zeros_like(weight)
         for i in range(dim):
             mask_d[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
 
         # self.register_buffer('mask_d', mask_d)
-        self.mask_d = tf.constant('mask_d', mask_d)
+        self.mask_d = tf.constant(name='mask_d', value=mask_d)
 
-        mask_o = tf.ones_like(weight)
+        mask_o = np.ones_like(weight)
         for i in range(dim):
             mask_o[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):] = 0
             
         # self.register_buffer('mask_o', mask_o)
-        self.mask_o = tf.constant('mask_o', mask_o)
+        self.mask_o = tf.constant(name='mask_o', value=mask_o)
 
     def get_weights(self):
         """
