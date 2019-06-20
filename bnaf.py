@@ -182,14 +182,14 @@ class MaskedWeight(tf.keras.layers.Layer):
 
         for i in range(dim):
             weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
-                tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), trainable=False).numpy()
+                tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), dtype=tf.float32, trainable=False).numpy()
 
         with tf.variable_scope("params", reuse=False):
-            self._weight = tf.get_variable("off_diagonal", initializer=weight)
+            self._weight = tf.get_variable("off_diagonal", initializer=tf.cast(weight, dtype=tf.float32), dtype=tf.float32)
         
             # self._weight = torch.nn.Parameter(weight)
             # self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
-            self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform())) #maybe takes log because we're going to take exp later?
+            self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform(), dtype=tf.float32)) #maybe takes log because we're going to take exp later?
 
             # self.bias = torch.nn.Parameter(
             #     torch.nn.init.uniform_(torch.Tensor(out_features),
@@ -233,7 +233,7 @@ class MaskedWeight(tf.keras.layers.Layer):
         # return tf.transpose(w), tf.transpose(wpl)[self.mask_d.byte().t()].view(
         #     self.dim, self.in_features // self.dim, self.out_features // self.dim)
 
-        return tf.transpose(w), tf.reshape(tf.transpose(wpl)[tf.transpose(tf.cast(self.mask_d, tf.uint8))],(
+        return tf.transpose(w), tf.reshape(tf.boolean_mask(tf.transpose(wpl),tf.transpose(tf.cast(self.mask_d, tf.bool))),(
             self.dim, self.in_features // self.dim, self.out_features // self.dim))
 
 
