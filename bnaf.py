@@ -228,7 +228,8 @@ class MaskedWeight(tf.keras.layers.Layer):
         
         w = tf.exp(self._diag_weight) * w / tf.sqrt(w_squared_norm)
 
-        ## this piece feeds the log-determinant of the jacobian
+        ## this piece feeds the log-determinant of the jacobian -- the diagonals are all that are needed
+        # and they are extracted with the boolean_mask in the return argument below
         wpl = self._diag_weight + self._weight - 0.5 * tf.log(w_squared_norm)
 
         # return tf.transpose(w), tf.transpose(wpl)[self.mask_d.byte().t()].view(
