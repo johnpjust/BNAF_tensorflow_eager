@@ -221,13 +221,14 @@ class MaskedWeight(tf.keras.layers.Layer):
         """
 
         # error in original here i think -- should be self._diag_weight or w_squared_norm is not correct
-        # w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
-        w = tf.multiply(tf.exp(tf.diag(self._diag_weight)), self.mask_d) + tf.multiply(self._weight, self.mask_o)
+        w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
+        # w = tf.multiply(tf.exp(self._diag_weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
 
         w_squared_norm = tf.reduce_sum(tf.math.square(w), axis=-1, keepdims=True)
         
         w = tf.exp(self._diag_weight) * w / tf.sqrt(w_squared_norm)
-        
+
+        ## this piece feeds the log-determinant of the jacobian
         wpl = self._diag_weight + self._weight - 0.5 * tf.log(w_squared_norm)
 
         # return tf.transpose(w), tf.transpose(wpl)[self.mask_d.byte().t()].view(
@@ -255,12 +256,21 @@ class MaskedWeight(tf.keras.layers.Layer):
         w, wpl = self.get_weights()
         
         # g = wpl.transpose(-2, -1).unsqueeze(0).repeat(inputs.shape[0], 1, 1, 1)
-        g = tf.tile(tf.expand_dims(tf.transpose(wpl, perm=(-2, -1)), axis=0), (inputs.shape[0], 1, 1, 1))
+        grad_perm = list(range(len(wpl.shape)))
+        grad_perm[-1] = len(grad_perm)-2
+        grad_perm[-2] = len(grad_perm)-1
+        g = tf.tile(tf.expand_dims(tf.transpose(wpl, perm=grad_perm), axis=0), (inputs.shape[0], 1, 1, 1))
         
         # return inputs.matmul(w) + self.bias, torch.logsumexp(
         #     g.unsqueeze(-2) + grad.transpose(-2, -1).unsqueeze(-3), -1) if grad is not None else g
+
+        if grad is not None:
+            grad_perm = list(range(len(grad.shape)))
+            grad_perm[-1] = len(grad_perm)-2
+            grad_perm[-2] = len(grad_perm)-1
+
         return tf.matmul(inputs, w) + self.bias, tf.reduce_logsumexp(
-            tf.expand_dims(g, axis=-2) + tf.expand_dims(tf.transpose(grad, perm=(-2, -1)), axis=-3), -1) if grad is not None else g
+            tf.expand_dims(g, axis=-2) + tf.expand_dims(tf.transpose(grad, perm=grad_perm), axis=-3), -1) if grad is not None else g
 
     def __repr__(self):
         return 'MaskedWeight(in_features={}, out_features={}, dim={}, bias={})'.format(
@@ -290,6 +300,6 @@ class Tanh(tf.keras.layers.Layer):
         # g = - 2 * (inputs - tf.math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
         # return tf.tanh(inputs), (g.view(grad.shape) + grad) if grad is not None else g
 
-        g = - 2 * (inputs - tf.math.log(2) + tf.keras.activations.softplus(- 2 * inputs))
+        g = - 2 * (inputs - tf.math.log(2.) + tf.keras.activations.softplus(- 2. * inputs))
         return tf.tanh(inputs), (tf.reshape(g,grad.shape) + grad) if grad is not None else g
     
