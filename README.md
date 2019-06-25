@@ -8,10 +8,10 @@ Tensorflow Eager Execution implementation of Block Neural Autoregressive Flow ba
 Optional for visualization and plotting: ``numpy``, ``matplotlib``
 
 ## Structure
-* This has been adapted from the original to work with Tensorflow Eager Execution, improve optimization, fix some mistakes in the implementation, and eliminate things like normalization layers to help condense the articture to minimal size for embedded applications.
+* This has been adapted from the original to work with Tensorflow Eager Execution.
 
 ## Usage
-Below, example commands are given for running experiments.
+-----
 
 ## License
 MIT_
