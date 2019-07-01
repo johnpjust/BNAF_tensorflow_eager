@@ -38,23 +38,23 @@ def load_dataset(args):
     # data = pd.read_csv(r'C:\Users\just\PycharmProjects\BNAF\data\gas\ethylene_methane.txt', delim_whitespace=True, header='infer')
     # data.to_pickle('data/gas/ethylene_methane.pickle')
 
-    if args.dataset == 'gas':
-        # dataset = GAS('data/gas/ethylene_CO.pickle')
-        dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
-    elif args.dataset == 'bsds300':
-        dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
-    elif args.dataset == 'hepmass':
-        dataset = HEPMASS('data/hepmass')
-    elif args.dataset == 'miniboone':
-        dataset = MINIBOONE('data/miniboone/data.npy')
-    elif args.dataset == 'power':
-        dataset = POWER('data/power/data.npy')
-    # elif args.dataset == 'uni_gauss':
-    #     dataset =
-    else:
-        raise RuntimeError()
-
-
+    # if args.dataset == 'gas':
+    #     # dataset = GAS('data/gas/ethylene_CO.pickle')
+    #     dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
+    # elif args.dataset == 'bsds300':
+    #     dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
+    # elif args.dataset == 'hepmass':
+    #     dataset = HEPMASS('data/hepmass')
+    # elif args.dataset == 'miniboone':
+    #     dataset = MINIBOONE('data/miniboone/data.npy')
+    # elif args.dataset == 'power':
+    #     dataset = POWER('data/power/data.npy')
+    # # elif args.dataset == 'uni_gauss':
+    # #     dataset =
+    # else:
+    #     raise RuntimeError()
+    #
+    #
     # dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
     # # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
     # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
@@ -75,8 +75,7 @@ def load_dataset(args):
     #
     # args.n_dims = dataset.n_dims
 
-    # dataset = np.random.binomial(1,0.5,size=[5000,1])
-    # dataset = dataset*np.random.normal(-1.5,1,size=[5000,1]) + (1-dataset)*np.random.normal(1.5,1,size=[5000,1])
+
     train_size = 3000
     dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
 
@@ -336,8 +335,6 @@ def main():
     with tf.device('/cpu:0'):
         optimizer = tf.train.AdamOptimizer()
     # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
-
-
 
     ## tensorboard and saving
     writer = tf.contrib.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))

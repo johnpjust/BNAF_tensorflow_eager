@@ -92,15 +92,26 @@ class BNAF(tf.keras.models.Sequential):
         # return outputs, grad ## debug
 
         assert inputs.shape[-1] == outputs.shape[-1]
-        
-        if self.res == 'normal':
-            return inputs + outputs, tf.reduce_sum(tf.keras.activations.softplus(tf.squeeze(grad)), axis=-1)
-        elif self.res == 'gated':
-            return tf.nn.sigmoid(self.gate) * outputs + (1 - tf.nn.sigmoid(self.gate)) * inputs, \
-                tf.reduce_sum(tf.nn.softplus(tf.squeeze(grad) + self.gate) - \
-                 tf.nn.softplus(self.gate), axis=-1)
+        grad = tf.squeeze(grad)
+        reduce_sum = len(grad.shape) > 1
+
+        if reduce_sum:
+            if self.res == 'normal':
+                return inputs + outputs, tf.reduce_sum(tf.keras.activations.softplus(tf.squeeze(grad)), axis=-1)
+            elif self.res == 'gated':
+                return tf.nn.sigmoid(self.gate) * outputs + (1 - tf.nn.sigmoid(self.gate)) * inputs, \
+                    tf.reduce_sum(tf.nn.softplus(tf.squeeze(grad) + self.gate) - \
+                     tf.nn.softplus(self.gate), axis=-1)
+            else:
+                return outputs, tf.reduce_sum(tf.squeeze(grad), axis=-1)
         else:
-            return outputs, tf.reduce_sum(tf.squeeze(grad), axis=-1)
+            if self.res == 'normal':
+                return inputs + outputs, tf.keras.activations.softplus(grad)
+            elif self.res == 'gated':
+                return tf.nn.sigmoid(self.gate) * outputs + (1 - tf.nn.sigmoid(self.gate)) * inputs, \
+                    tf.nn.softplus(grad + self.gate) - tf.nn.softplus(self.gate)
+            else:
+                return outputs, grad
         
     def _get_name(self):
         return 'BNAF(res={})'.format(self.res)
