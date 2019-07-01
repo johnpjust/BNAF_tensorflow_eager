@@ -49,44 +49,57 @@ def load_dataset(args):
         dataset = MINIBOONE('data/miniboone/data.npy')
     elif args.dataset == 'power':
         dataset = POWER('data/power/data.npy')
+    # elif args.dataset == 'uni_gauss':
+    #     dataset =
     else:
         raise RuntimeError()
 
-    # dataset_train = torch.utils.data.TensorDataset(
-    #     torch.from_numpy(dataset.trn.x).float().to(args.device))
-    # data_loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_dim, shuffle=True)
+
+    # dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
+    # # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
+    # ##data_loader_train.get_next()
     #
-    # dataset_valid = torch.utils.data.TensorDataset(
-    #     torch.from_numpy(dataset.val.x).float().to(args.device))
-    # data_loader_valid = torch.utils.data.DataLoader(dataset_valid, batch_size=args.batch_dim, shuffle=False)
+    # dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
+    # # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
+    # ##data_loader_valid.get_next()
     #
-    # dataset_test = torch.utils.data.TensorDataset(
-    #     torch.from_numpy(dataset.tst.x).float().to(args.device))
-    # data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_dim, shuffle=False)
+    # dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
+    # # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
+    # ##data_loader_test.get_next()
+    #
+    # args.n_dims = dataset.n_dims
 
-    dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
-    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
-    ##data_loader_train.get_next()
+    # dataset = np.random.binomial(1,0.5,size=[5000,1])
+    # dataset = dataset*np.random.normal(-1.5,1,size=[5000,1]) + (1-dataset)*np.random.normal(1.5,1,size=[5000,1])
+    train_size = 3000
+    dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
 
-    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
-    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
-    ##data_loader_valid.get_next()
+    dataset_train = tf.data.Dataset.from_tensor_slices((dataset[:train_size]))  # .float().to(args.device)
+    dataset_train = dataset_train.batch(batch_size=args.batch_dim).prefetch( buffer_size=1)
 
-    dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
-    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
-    ##data_loader_test.get_next()
+    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset[train_size:2*train_size]))#.float().to(args.device)
+    dataset_valid = dataset_valid.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
 
-    args.n_dims = dataset.n_dims
-    
+    dataset_test = tf.data.Dataset.from_tensor_slices((dataset[train_size*2:]))#.float().to(args.device)
+    dataset_test = dataset_test.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+
+    args.n_dims = 1
+
     return dataset_train, dataset_valid, dataset_test
 
 def create_model(args, verbose=False):
+
+    manualSeed = 1
+    np.random.seed(manualSeed)
+    # random.seed(manualSeed)
+    torch.manual_seed(manualSeed)
+
     flows = []
     for f in range(args.flows):
         #build internal layers for a single flow
@@ -95,15 +108,6 @@ def create_model(args, verbose=False):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
                                        args.n_dims * args.hidden_dim, dim=args.n_dims))
             layers.append(Tanh())
-        ## wrap each flow with layers that ensure consistency in dimensions.  Math to divide out the hidden_dimensions
-        # units is performed in the MaskedWeight layer
-        # flows.append(
-        #     BNAF(*([MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
-        #            layers + \
-        #            [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims)]),\
-        #          res=args.residual if f < args.flows - 1 else None
-        #     )
-        # )
 
         flows.append(
             BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
@@ -140,7 +144,6 @@ def load_model(args, root, load_start_epoch=False):
         if load_start_epoch:
             args.start_epoch = tf.train.get_global_step().numpy()
     return f
-
 
 def compute_log_p_x(model, x_mb):
 
@@ -210,13 +213,13 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
 
             # global_step.assign_add(1)
         train_loss = np.mean(train_loss)
-        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid])
+        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
 
         # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
         #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
 
 
-        stop = scheduler.on_epoch_end(epoch = epoch)
+        stop = scheduler.on_epoch_end(epoch = epoch, monitor=validation_loss)
 
         if args.tensorboard:
             with tf.contrib.summary.always_record_summaries():
@@ -229,8 +232,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         if stop:
             break
 
-    validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_valid])
-    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb, in data_loader_test])
+    validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
+    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_test])
 
     print('###### Stop training after {} epochs!'.format(epoch + 1))
     print('Validation loss: {:4.3f}'.format(validation_loss))
@@ -257,15 +260,15 @@ def main():
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 200
     args.clip_norm = 0.1
-    args.epochs = 1000
-    args.patience = 20
+    args.epochs = 5000
+    args.patience = 10
     args.cooldown = 10
     args.early_stopping = 100
     args.decay = 0.5
     args.min_lr = 5e-4
-    args.flows = 5
+    args.flows = 1
     args.layers = 1
-    args.hidden_dim = 10
+    args.hidden_dim = 3
     args.residual = 'gated'
     args.expname = ''
     args.load = None
@@ -324,6 +327,11 @@ def main():
     with tf.device('/cpu:0'):
         model = create_model(args, verbose=True)
 
+    ## debug
+    data_loader_train_ = tf.contrib.eager.Iterator(data_loader_train)
+    x = data_loader_train_.get_next()
+    a = model(x)
+
     print('Creating optimizer..')
     with tf.device('/cpu:0'):
         optimizer = tf.train.AdamOptimizer()
@@ -351,13 +359,18 @@ def main():
     scheduler = EarlyStopping(model=model, patience=10, args = args, root = root)
 
     with tf.device('/cpu:0'):
-        print('Training..')
-        if args.experiment == 'density2d':
-            train_density2d(model, optimizer, scheduler, args)
-        elif args.experiment == 'energy2d':
-            train_energy2d(model, optimizer, scheduler, args)
-        else:
-            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+        # print('Training..')
+        # if args.experiment == 'density2d':
+        #     train_density2d(model, optimizer, scheduler, args)
+        # elif args.experiment == 'energy2d':
+        #     train_energy2d(model, optimizer, scheduler, args)
+        # else:
+        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
 
 if __name__ == '__main__':
     main()
+
+##"C:\Program Files\Git\bin\sh.exe" --login -i
+
+#### tensorboard --logdir=C:\Users\just\PycharmProjects\BNAF\tensorboard\checkpoint
+## http://localhost:6006/

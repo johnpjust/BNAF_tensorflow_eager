@@ -1,6 +1,8 @@
 import tensorflow as tf
 import math
 import numpy as np
+import tensorflow_probability as tfp
+import torch
 
 class Sequential(tf.keras.models.Sequential):
     """
@@ -127,11 +129,11 @@ class Permutation(tf.keras.layers.Layer):
         self.in_features = in_features
         
         if p is None:
-            self.p = np.random.permutation(in_features)
+            self.p = tfp.bijectors.Permute(np.random.permutation(in_features))
         elif p == 'flip':
-            self.p = list(reversed(range(in_features)))
+            self.p = tfp.bijectors.Permute(list(reversed(range(in_features))))
         else:
-            self.p = p
+            self.p = tfp.bijectors.Permute(p)
         
     def call(self, inputs : tf.Tensor, **kwargs):
         """
@@ -144,7 +146,8 @@ class Permutation(tf.keras.layers.Layer):
         The permuted tensor and the log-det-Jacobian of this permutation.
         """
         
-        return inputs[:,self.p], 0
+        # return inputs[:,self.p], 0
+        return self.p.forward(inputs), 0
     
     def __repr__(self):
         return 'Permutation(in_features={}, p={})'.format(self.in_features, self.p)
@@ -175,28 +178,26 @@ class MaskedWeight(tf.keras.layers.Layer):
         self.in_features, self.out_features, self.dim = in_features, out_features, dim
 
         weight = np.zeros((out_features, in_features))
-        # for i in range(dim):
-        #     weight[i * out_features // dim:(i + 1) * out_features // dim,
-        #            0:(i + 1) * in_features // dim] = torch.nn.init.xavier_uniform_(
-        #         torch.Tensor(out_features // dim, (i + 1) * in_features // dim))
 
+        # ## tensorflow init
+        # for i in range(dim):
+        #     weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
+        #         tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), dtype=tf.float32, trainable=False).numpy()
+        ## torch init
         for i in range(dim):
-            weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
-                tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), dtype=tf.float32, trainable=False).numpy()
+            weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = torch.nn.init.xavier_uniform_(
+                torch.Tensor(out_features // dim, (i + 1) * in_features // dim)).numpy()
 
         with tf.variable_scope("params", reuse=False):
             self._weight = tf.get_variable("off_diagonal", initializer=tf.cast(weight, dtype=tf.float32), dtype=tf.float32)
-        
-            # self._weight = torch.nn.Parameter(weight)
-            # self._diag_weight = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log())
-            self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform(), dtype=tf.float32)) #maybe takes log because we're going to take exp later?
-
-            # self.bias = torch.nn.Parameter(
-            #     torch.nn.init.uniform_(torch.Tensor(out_features),
-            #                            -1 / math.sqrt(out_features),
-            #                            1 / math.sqrt(out_features))) if bias else 0
-
-            self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
+            # ## tf init
+            # self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform(), dtype=tf.float32)) #maybe takes log because we're going to take exp later?
+            # self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
+            ## torch init
+            self._diag_weight = tf.get_variable("diag", initializer=torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log().numpy(), dtype=tf.float32) #maybe takes log because we're going to take exp later?
+            self.bias = tf.get_variable("bias", initializer=torch.nn.init.uniform_(torch.Tensor(out_features),
+                                   -1 / math.sqrt(out_features),
+                                   1 / math.sqrt(out_features)).numpy()) if bias else 0
 
         mask_d = np.zeros_like(weight)
         for i in range(dim):
@@ -222,6 +223,7 @@ class MaskedWeight(tf.keras.layers.Layer):
 
         # error in original here i think -- should be self._diag_weight or w_squared_norm is not correct
         w = tf.multiply(tf.exp(self._weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
+        # w = tfp.bijectors.transform_diagonal(self._weight)
         # w = tf.multiply(tf.exp(self._diag_weight), self.mask_d) + tf.multiply(self._weight, self.mask_o)
 
         w_squared_norm = tf.reduce_sum(tf.math.square(w), axis=-1, keepdims=True)
@@ -271,7 +273,7 @@ class MaskedWeight(tf.keras.layers.Layer):
             grad_perm[-2] = len(grad_perm)-1
 
         return tf.matmul(inputs, w) + self.bias, tf.reduce_logsumexp(
-            tf.expand_dims(g, axis=-2) + tf.expand_dims(tf.transpose(grad, perm=grad_perm), axis=-3), -1) if grad is not None else g
+            tf.expand_dims(g, axis=-2) + tf.expand_dims(tf.transpose(grad, perm=grad_perm), axis=-3), axis=-1) if grad is not None else g
 
     def __repr__(self):
         return 'MaskedWeight(in_features={}, out_features={}, dim={}, bias={})'.format(
@@ -303,4 +305,35 @@ class Tanh(tf.keras.layers.Layer):
 
         g = - 2 * (inputs - tf.math.log(2.) + tf.keras.activations.softplus(- 2. * inputs))
         return tf.tanh(inputs), (tf.reshape(g,grad.shape) + grad) if grad is not None else g
-    
+
+
+## tensorflow probability implementation
+# class MaskedWeight_tfp(tfp.bijectors.Bijector):
+#
+#     def __init__(self, validate_args=False, name="MaskedWeight_tfp", Nin, Nout, init='glorot'):
+#         super(MaskedWeight_tfp, self).__init__(
+#             validate_args=validate_args,
+#             forward_min_event_ndims=0,
+#             name=name)
+#
+#         self.diag_transform = tfp.bijectors.TransformDiagonal(diag_bijector=tfp.bijectors.Exp())
+#         if init=='glorot':
+#             pass
+#         elif init=='he':
+#             pass
+#
+#     def _forward(self, x):
+#         return tf.matmul(x, self._weights)
+#
+#     def _inverse(self, y):
+#         return tf.log(y)
+#
+#     def _inverse_log_det_jacobian(self, y):
+#         return -self._forward_log_det_jacobian(self._inverse(y))
+#
+#     def _forward_log_det_jacobian(self, x):
+#         # Notice that we needn't do any reducing, even when`event_ndims > 0`.
+#         # The base Bijector class will handle reducing for us; it knows how
+#         # to do so because we called `super` `__init__` with
+#         # `forward_min_event_ndims = 0`.
+#         return x
