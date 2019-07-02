@@ -2,7 +2,6 @@ import tensorflow as tf
 import math
 import numpy as np
 import tensorflow_probability as tfp
-import torch
 
 class Sequential(tf.keras.models.Sequential):
     """
@@ -190,25 +189,25 @@ class MaskedWeight(tf.keras.layers.Layer):
 
         weight = np.zeros((out_features, in_features))
 
-        # ## tensorflow init
-        # for i in range(dim):
-        #     weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
-        #         tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), dtype=tf.float32, trainable=False).numpy()
-        ## torch init
+        ## tensorflow init
         for i in range(dim):
-            weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = torch.nn.init.xavier_uniform_(
-                torch.Tensor(out_features // dim, (i + 1) * in_features // dim)).numpy()
+            weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = \
+                tf.get_variable("w", shape=[out_features // dim, (i + 1) * in_features // dim], initializer=tf.contrib.layers.xavier_initializer(), dtype=tf.float32, trainable=False).numpy()
+        # ## torch init
+        # for i in range(dim):
+        #     weight[(i * out_features // dim):((i + 1) * out_features // dim), 0:((i + 1) * in_features // dim)] = torch.nn.init.xavier_uniform_(
+        #         torch.Tensor(out_features // dim, (i + 1) * in_features // dim)).numpy()
 
         with tf.variable_scope("params", reuse=False):
             self._weight = tf.get_variable("off_diagonal", initializer=tf.cast(weight, dtype=tf.float32), dtype=tf.float32)
-            # ## tf init
-            # self._diag_weight = tf.log(tf.get_variable("diag", shape=(out_features, 1), initializer=tf.initializers.random_uniform(), dtype=tf.float32)) #maybe takes log because we're going to take exp later?
-            # self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
-            ## torch init
-            self._diag_weight = tf.get_variable("diag", initializer=torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log().numpy(), dtype=tf.float32) #maybe takes log because we're going to take exp later?
-            self.bias = tf.get_variable("bias", initializer=torch.nn.init.uniform_(torch.Tensor(out_features),
-                                   -1 / math.sqrt(out_features),
-                                   1 / math.sqrt(out_features)).numpy()) if bias else 0
+            ## tf init
+            self._diag_weight = tf.get_variable("diag", initializer=np.log(np.random.uniform(0,1, size=(out_features, 1))).astype(np.float32), dtype=tf.float32) #maybe takes log because we're going to take exp later?
+            self.bias = tf.get_variable("bias", shape=out_features, initializer=tf.initializers.random_uniform(-1 / math.sqrt(out_features), 1 / math.sqrt(out_features))) if bias else 0
+            # ## torch init
+            # self._diag_weight = tf.get_variable("diag", initializer=torch.nn.init.uniform_(torch.Tensor(out_features, 1)).log().numpy(), dtype=tf.float32) #maybe takes log because we're going to take exp later?
+            # self.bias = tf.get_variable("bias", initializer=torch.nn.init.uniform_(torch.Tensor(out_features),
+            #                        -1 / math.sqrt(out_features),
+            #                        1 / math.sqrt(out_features)).numpy()) if bias else 0
 
         mask_d = np.zeros_like(weight)
         for i in range(dim):

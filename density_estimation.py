@@ -265,8 +265,8 @@ def main():
     args.early_stopping = 100
     args.decay = 0.5
     args.min_lr = 5e-4
-    args.flows = 2
-    args.layers = 2
+    args.flows = 1
+    args.layers = 1
     args.hidden_dim = 3
     args.residual = 'gated'
     args.expname = ''
