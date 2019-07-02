@@ -97,7 +97,7 @@ def create_model(args, verbose=False):
     manualSeed = 1
     np.random.seed(manualSeed)
     # random.seed(manualSeed)
-    torch.manual_seed(manualSeed)
+    # torch.manual_seed(manualSeed)
 
     flows = []
     for f in range(args.flows):
