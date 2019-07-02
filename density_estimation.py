@@ -1,4 +1,3 @@
-
 import os
 import json
 import pprint
@@ -313,8 +312,8 @@ def main():
         str(datetime.datetime.now())[:-7].replace(' ', '-').replace(':', '-')))
 
     print('Loading dataset..')
-    with tf.device(args.device):
-        data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
+
+    data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
     
     if args.save and not args.load:
         print('Creating directory experiment..')
@@ -347,9 +346,9 @@ def main():
     if args.load:
         load_model(args, root, load_start_epoch=True)
 
-    with tf.device(args.device):
-        tf.train.get_or_create_global_step()
-        # global_step.assign(0)
+
+    tf.train.get_or_create_global_step()
+    # global_step.assign(0)
 
     print('Creating scheduler..')
     # use baseline to avoid saving early on
@@ -363,6 +362,7 @@ def main():
         #     train_energy2d(model, optimizer, scheduler, args)
         # else:
         train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+
 
 if __name__ == '__main__':
     main()
