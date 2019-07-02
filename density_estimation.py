@@ -265,8 +265,8 @@ def main():
     args.early_stopping = 100
     args.decay = 0.5
     args.min_lr = 5e-4
-    args.flows = 1
-    args.layers = 1
+    args.flows = 2
+    args.layers = 2
     args.hidden_dim = 3
     args.residual = 'gated'
     args.expname = ''
@@ -313,7 +313,7 @@ def main():
         str(datetime.datetime.now())[:-7].replace(' ', '-').replace(':', '-')))
 
     print('Loading dataset..')
-    with tf.device('/cpu:0'):
+    with tf.device(args.device):
         data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
     
     if args.save and not args.load:
@@ -323,16 +323,16 @@ def main():
             json.dump(args.__dict__, f, indent=4, sort_keys=True)
     
     print('Creating BNAF model..')
-    with tf.device('/cpu:0'):
+    with tf.device(args.device):
         model = create_model(args, verbose=True)
 
-    ## debug
-    data_loader_train_ = tf.contrib.eager.Iterator(data_loader_train)
-    x = data_loader_train_.get_next()
-    a = model(x)
+    # ## debug
+    # data_loader_train_ = tf.contrib.eager.Iterator(data_loader_train)
+    # x = data_loader_train_.get_next()
+    # a = model(x)
 
     print('Creating optimizer..')
-    with tf.device('/cpu:0'):
+    with tf.device(args.device):
         optimizer = tf.train.AdamOptimizer()
     # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
 
@@ -347,7 +347,7 @@ def main():
     if args.load:
         load_model(args, root, load_start_epoch=True)
 
-    with tf.device('/cpu:0'):
+    with tf.device(args.device):
         tf.train.get_or_create_global_step()
         # global_step.assign(0)
 
@@ -355,7 +355,7 @@ def main():
     # use baseline to avoid saving early on
     scheduler = EarlyStopping(model=model, patience=10, args = args, root = root)
 
-    with tf.device('/cpu:0'):
+    with tf.device(args.device):
         # print('Training..')
         # if args.experiment == 'density2d':
         #     train_density2d(model, optimizer, scheduler, args)
