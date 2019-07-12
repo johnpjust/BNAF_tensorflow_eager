@@ -22,6 +22,7 @@ from data.bsds300 import BSDS300
 from data.hepmass import HEPMASS
 from data.miniboone import MINIBOONE
 from data.power import POWER
+from data.GQ_MS import GQ_MS
 
 NAF_PARAMS = {
     'power': (414213, 828258),
@@ -37,57 +38,65 @@ def load_dataset(args):
     # data = pd.read_csv(r'C:\Users\just\PycharmProjects\BNAF\data\gas\ethylene_methane.txt', delim_whitespace=True, header='infer')
     # data.to_pickle('data/gas/ethylene_methane.pickle')
 
-    # if args.dataset == 'gas':
-    #     # dataset = GAS('data/gas/ethylene_CO.pickle')
-    #     dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
-    # elif args.dataset == 'bsds300':
-    #     dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
-    # elif args.dataset == 'hepmass':
-    #     dataset = HEPMASS('data/hepmass')
-    # elif args.dataset == 'miniboone':
-    #     dataset = MINIBOONE('data/miniboone/data.npy')
-    # elif args.dataset == 'power':
-    #     dataset = POWER('data/power/data.npy')
-    # # elif args.dataset == 'uni_gauss':
-    # #     dataset =
-    # else:
-    #     raise RuntimeError()
+    if args.dataset == 'gas':
+        # dataset = GAS('data/gas/ethylene_CO.pickle')
+        dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
+    elif args.dataset == 'bsds300':
+        dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
+    elif args.dataset == 'hepmass':
+        dataset = HEPMASS('data/hepmass')
+    elif args.dataset == 'miniboone':
+        dataset = MINIBOONE('data/miniboone/data.npy')
+    elif args.dataset == 'power':
+        dataset = POWER('data/power/data.npy')
+    elif args.dataset == 'gq_ms_wheat':
+        dataset = GQ_MS('data/GQ_MS/wheat_perms.xlsx')
+    elif args.dataset == 'gq_ms_soy':
+        dataset = GQ_MS('data/GQ_MS/soy_perms.xlsx')
+    elif args.dataset == 'gq_ms_corn':
+        dataset = GQ_MS('data/GQ_MS/corn_perms.xlsx')
+    elif args.dataset == 'gq_ms_canola':
+        dataset = GQ_MS('data/GQ_MS/canola_perms.xlsx')
+    elif args.dataset == 'gq_ms_barley':
+        dataset = GQ_MS('data/GQ_MS/barley_perms.xlsx')
+    else:
+        raise RuntimeError()
+
+
+    dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
+    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
+    ##data_loader_train.get_next()
+
+    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
+    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
+    ##data_loader_valid.get_next()
+
+    dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
+    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+    # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
+    ##data_loader_test.get_next()
+
+    args.n_dims = dataset.n_dims
+
+
+    # train_size = 3000
+    # dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
     #
+    # dataset_train = tf.data.Dataset.from_tensor_slices((dataset[:train_size]))  # .float().to(args.device)
+    # dataset_train = dataset_train.batch(batch_size=args.batch_dim).prefetch( buffer_size=1)
     #
-    # dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
-    # # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
-    # ##data_loader_train.get_next()
+    # dataset_valid = tf.data.Dataset.from_tensor_slices((dataset[train_size:2*train_size]))#.float().to(args.device)
+    # dataset_valid = dataset_valid.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
     #
-    # dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
-    # # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
-    # ##data_loader_valid.get_next()
+    # dataset_test = tf.data.Dataset.from_tensor_slices((dataset[train_size*2:]))#.float().to(args.device)
+    # dataset_test = dataset_test.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
     #
-    # dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
-    # # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
-    # ##data_loader_test.get_next()
-    #
-    # args.n_dims = dataset.n_dims
-
-
-    train_size = 3000
-    dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
-
-    dataset_train = tf.data.Dataset.from_tensor_slices((dataset[:train_size]))  # .float().to(args.device)
-    dataset_train = dataset_train.batch(batch_size=args.batch_dim).prefetch( buffer_size=1)
-
-    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset[train_size:2*train_size]))#.float().to(args.device)
-    dataset_valid = dataset_valid.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-
-    dataset_test = tf.data.Dataset.from_tensor_slices((dataset[train_size*2:]))#.float().to(args.device)
-    dataset_test = dataset_test.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-
-    args.n_dims = 1
+    # args.n_dims = 1
 
     return dataset_train, dataset_valid, dataset_test
 
@@ -119,29 +128,29 @@ def create_model(args, verbose=False):
             flows.append(Permutation(args.n_dims, 'flip'))
 
         model = Sequential(flows)
-        params = np.sum(np.sum(p.numpy() != 0) if len(p.numpy().shape) > 1 else p.numpy().shape
-                     for p in model.trainable_variables)[0]
+        # params = np.sum(np.sum(p.numpy() != 0) if len(p.numpy().shape) > 1 else p.numpy().shape
+        #              for p in model.trainable_variables)[0]
     
-    if verbose:
-        print('{}'.format(model))
-        print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params, 
-            NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims))
+    # if verbose:
+    #     print('{}'.format(model))
+    #     print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params,
+    #         NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims))
 
-    if args.save and not args.load:
-        with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
-            print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params, 
-                NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims), file=f)
+    # if args.save and not args.load:
+    #     with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
+    #         print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params,
+    #             NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims), file=f)
     
     return model
 
 def load_model(args, root, load_start_epoch=False):
-    def f():
-        print('Loading model..')
-        # root.restore(tf.train.latest_checkpoint(checkpoint_dir))
-        root.restore(os.path.join(args.load or args.path, 'checkpoint.pt'))
-        if load_start_epoch:
-            args.start_epoch = tf.train.get_global_step().numpy()
-    return f
+    # def f():
+    print('Loading model..')
+    root.restore(tf.train.latest_checkpoint(args.load or args.path))
+    # root.restore(os.path.join(args.load or args.path, 'checkpoint'))
+    # if load_start_epoch:
+    #     args.start_epoch = tf.train.get_global_step().numpy()
+    # return f
 
 def compute_log_p_x(model, x_mb):
 
@@ -254,7 +263,7 @@ def main():
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'miniboone' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'gq_ms_wheat' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 200
     args.clip_norm = 0.1
@@ -269,8 +278,8 @@ def main():
     args.hidden_dim = 3
     args.residual = 'gated'
     args.expname = ''
-    args.load = None
-    args.save = False
+    args.load = r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-03-01-58-21'
+    args.save = True
     args.tensorboard = 'tensorboard'
 
     # parser = argparse.ArgumentParser()
@@ -319,7 +328,7 @@ def main():
         print('Creating directory experiment..')
         os.mkdir(args.path)
         with open(os.path.join(args.path, 'args.json'), 'w') as f:
-            json.dump(args.__dict__, f, indent=4, sort_keys=True)
+            json.dump(str(args.__dict__), f, indent=4, sort_keys=True)
     
     print('Creating BNAF model..')
     with tf.device(args.device):
