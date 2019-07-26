@@ -102,8 +102,9 @@ def load_dataset(args):
 
 def create_model(args, verbose=False):
 
-    manualSeed = 1
-    np.random.seed(manualSeed)
+    # manualSeed = 1
+    # np.random.seed(manualSeed)
+
     # random.seed(manualSeed)
     # torch.manual_seed(manualSeed)
 
@@ -214,11 +215,11 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
 
             grads = tape.gradient(loss, model.trainable_variables)
             grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
-            optimizer.apply_gradients(zip(grads, model.trainable_variables), global_step=tf.train.get_global_step())
+            optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
             train_loss.append(loss)
 
-            # global_step.assign_add(1)
+            tf.compat.v1.train.get_global_step().assign_add(1)
         train_loss = np.mean(train_loss)
         validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
 
@@ -229,9 +230,9 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         stop = scheduler.on_epoch_end(epoch = epoch, monitor=validation_loss)
 
         if args.tensorboard:
-            with tf.contrib.summary.always_record_summaries():
-                tf.contrib.summary.scalar('loss/validation', validation_loss)
-                tf.contrib.summary.scalar('loss/train', train_loss)
+            # with tf.contrib.summary.always_record_summaries():
+                tf.summary.scalar('loss/validation', validation_loss,tf.compat.v1.train.get_global_step())
+                tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
                 # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
                 # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
                 # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
@@ -256,10 +257,10 @@ class parser_:
     pass
 
 def main():
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     config.log_device_placement = True
-    tf.enable_eager_execution(config=config)
+    tf.compat.v1.enable_eager_execution(config=config)
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
@@ -278,7 +279,7 @@ def main():
     args.hidden_dim = 3
     args.residual = 'gated'
     args.expname = ''
-    args.load = r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-03-01-58-21'
+    args.load = ''#r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-03-01-58-21'
     args.save = True
     args.tensorboard = 'tensorboard'
 
@@ -341,22 +342,22 @@ def main():
 
     print('Creating optimizer..')
     with tf.device(args.device):
-        optimizer = tf.train.AdamOptimizer()
+        optimizer = tf.optimizers.Adam()
     # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
 
     ## tensorboard and saving
-    writer = tf.contrib.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
+    writer = tf.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
     writer.set_as_default()
     root = tf.train.Checkpoint(optimizer=optimizer,
                                model=model,
-                               optimizer_step=tf.train.get_or_create_global_step())
+                               optimizer_step=tf.compat.v1.train.get_or_create_global_step())
 
     args.start_epoch = 0
     if args.load:
         load_model(args, root, load_start_epoch=True)
 
 
-    tf.train.get_or_create_global_step()
+    tf.compat.v1.train.get_or_create_global_step()
     # global_step.assign(0)
 
     print('Creating scheduler..')
