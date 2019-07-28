@@ -64,27 +64,31 @@ def load_dataset(args):
     else:
         raise RuntimeError()
 
+    if not args.optimizer:
+        dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
+        # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
+        ##data_loader_train.get_next()
 
-    dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
-    # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
-    ##data_loader_train.get_next()
+        dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
+        # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
+        ##data_loader_valid.get_next()
 
-    dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
-    # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
-    ##data_loader_valid.get_next()
+        dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
+        # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
+        # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
+        ##data_loader_test.get_next()
 
-    dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
-    # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
-    ##data_loader_test.get_next()
+    else:
+        dataset_train = dataset.trn.x
+        dataset_valid = dataset.val.x
+        dataset_test = dataset.tst.x
 
     args.n_dims = dataset.n_dims
-
 
     # train_size = 3000
     # dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
@@ -130,7 +134,7 @@ def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
 
     grad_list = [v if v is not None else 0 for v in grad_list]
 
-    return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
+    return np.float32(prediction_loss), np.float32(grad_list), np.float32(regL1_penalty), np.float32(regL2_penalty)
 
 
 class Evaluator(object):
@@ -140,14 +144,14 @@ class Evaluator(object):
         self.loss_train_fun = loss_train_fun #func_tools partial function with model, features, and labels already loaded
         self.predLoss_val = loss_val #func_tools partial function with model, features, and labels already loaded
         self.global_step = global_step #tf variable for tracking update steps from scipy optimizer step_callback
-        self.predLoss_val_prev, _, _, _, _ = np.float64(loss_val()) + 10.0 #state variable of loss for early stopping
+        self.predLoss_val_prev, _, _, _, _ = np.float32(loss_val()) + 10.0 #state variable of loss for early stopping
         self.predLoss_val_cntr = 0 #counter to watch for early stopping
         # self.early_stop_limit = early_stop_limit #number of cycles of increasing validation loss before stopping
         self.scheduler = scheduler
         self.var_shapes = var_shapes #list of shapes of each tf variable
         self.var_list = var_list #list of trainable tf variables
         self.var_locs = var_locs
-        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float64(0))
+        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float32(0))
         self.grads_values = None
 
     def loss(self, x):
@@ -164,7 +168,7 @@ class Evaluator(object):
 
     def step_callback(self, x):
         ## early stopping tracking
-        predLoss_val_temp, _, _ = np.float64(self.predLoss_val())
+        predLoss_val_temp, _, _ = np.float32(self.predLoss_val())
         if predLoss_val_temp > self.predLoss_val_prev:
             self.predLoss_val_cntr += 1
         else:
@@ -195,6 +199,7 @@ class Evaluator(object):
 def create_model(args, verbose=False):
 
     manualSeed = 1
+    tf.random.set_random_seed(manualSeed)
     np.random.seed(manualSeed)
 
     # random.seed(manualSeed)
@@ -254,7 +259,7 @@ def loss_func(model, x_mb, x, regL2 = np.float32(-1.0), regL1 = np.float32(-1.0)
     if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
     return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
 
-@tf.function
+# @tf.function
 def compute_log_p_x(model, x_mb):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
     y_mb, log_diag_j_mb = model(x_mb)
@@ -301,7 +306,7 @@ def compute_log_p_x(model, x_mb):
 #         scheduler.step(loss)
 #
 #         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
-@tf.function
+# @tf.function
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     
     epoch = args.start_epoch
@@ -400,7 +405,7 @@ def main():
     args.early_stopping = 10
     args.maxiter = 500
     args.factr = 1E1
-    args.optimizer = 'LBFGS' #or None
+    args.optimizer = None #or None
     args.regL2 = 0.0001
     args.regL1 = -1
 
@@ -501,11 +506,11 @@ def main():
             loss_train = functools.partial(loss_func, x_mb=data_loader_train, model=model,
                                            regL2=args.regL2, regL1=args.regL1)
             loss_val = functools.partial(loss_func, x_mb=data_loader_valid, model=model,
-                                         regL2=np.float64(-1.0), regL1=np.float64(-1.0), x=np.float64(0))
+                                         regL2=np.float32(-1.0), regL1=np.float32(-1.0), x=np.float32(0))
 
             with tf.device("CPU:0"):
                 with tf.GradientTape() as tape:
-                    prediction_loss, _, _, _, _ = loss_train(x=np.float64(0))
+                    prediction_loss, _, _, _, _ = loss_train(x=np.float32(0))
                     var_list = tape.watched_variables()
 
             x_init = []
@@ -521,7 +526,7 @@ def main():
 
             evaluator = Evaluator(loss_train, loss_val, 0, scheduler, var_list, var_shapes, var_locs)
 
-            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float64(x_init),
+            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float32(x_init),
                                              fprime=evaluator.grads, maxiter=args.maxiter, factr=args.factr,
                                              callback=evaluator.step_callback)
 
