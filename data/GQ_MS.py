@@ -64,6 +64,6 @@ def load_data_and_clean_and_split(file):
     data_train = data[0:-N_test]
     N_validate = int(0.25 * data_train.shape[0])
     data_validate = data_train[-N_validate:]
-    data_train = data_train[0:-N_validate]
+    # data_train = data_train[0:-N_validate]
 
-    return data_train, data_validate, data_test
+    return data_train, data_test, data_test

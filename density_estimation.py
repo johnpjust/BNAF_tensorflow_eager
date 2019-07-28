@@ -8,14 +8,16 @@ import numpy as np
 from bnaf import *
 from optim.lr_scheduler import *
 
+from scipy.optimize import fmin_l_bfgs_b
+
+import functools
+
 # import argparse
 # import torch
 # from torch.utils import data
 # from data.generate2d import sample2d, energy2d
 # from tqdm import tqdm
 # from optim.adam import Adam
-
-
 
 from data.gas import GAS
 from data.bsds300 import BSDS300
@@ -100,10 +102,100 @@ def load_dataset(args):
 
     return dataset_train, dataset_valid, dataset_test
 
+def smooth_abs_tf(x):
+    #asdjksfdajk
+    return tf.square(x) / tf.sqrt(tf.square(x) + .01 ** 2)
+
+def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
+    ## x: updated variables from scipy optimizer
+    ## var_list: list of trainable variables
+    ## var_sapes: the shape of each variable to use for updating variables with optimizer values
+    ## var_locs:  slicing indecies to use on x prior to reshaping
+
+    ## update variables
+    grad_list = []
+    for i in range(len(var_list)):
+        var_list[i].assign(np.reshape(x[var_locs[i]:(var_locs[i+1])], var_shapes[i]))
+
+    # ## make the predictions pass through the origin by setting final layer bias
+    # var_list[-1].assign((var_list[-1]-model(np.array([[0]])))[0])
+
+    ## calculate new gradient
+    with tf.device("CPU:0"):
+        with tf.GradientTape() as tape:
+            prediction_loss, regL1_penalty, regL2_penalty = loss_train(x=x)
+
+        for p in tape.gradient(prediction_loss, var_list):
+            grad_list.extend(np.array(tf.reshape(p, [-1])))
+
+    grad_list = [v if v is not None else 0 for v in grad_list]
+
+    return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
+
+
+class Evaluator(object):
+
+    # def __init__(self, loss_train_fun, loss_val, global_step, early_stop_limit, var_list, var_shapes, var_locs, model):
+    def __init__(self, loss_train_fun, loss_val, global_step, scheduler, var_list, var_shapes, var_locs):
+        self.loss_train_fun = loss_train_fun #func_tools partial function with model, features, and labels already loaded
+        self.predLoss_val = loss_val #func_tools partial function with model, features, and labels already loaded
+        self.global_step = global_step #tf variable for tracking update steps from scipy optimizer step_callback
+        self.predLoss_val_prev, _, _, _, _ = np.float64(loss_val()) + 10.0 #state variable of loss for early stopping
+        self.predLoss_val_cntr = 0 #counter to watch for early stopping
+        # self.early_stop_limit = early_stop_limit #number of cycles of increasing validation loss before stopping
+        self.scheduler = scheduler
+        self.var_shapes = var_shapes #list of shapes of each tf variable
+        self.var_list = var_list #list of trainable tf variables
+        self.var_locs = var_locs
+        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float64(0))
+        self.grads_values = None
+
+    def loss(self, x):
+        # assert self.loss_value is None
+        self.loss_value, self.grad_values, self.regL1, self.regL2 = eval_loss_and_grads(x, self.loss_train_fun, self.var_list, self.var_shapes, self.var_locs) #eval_loss_and_grads
+        return self.loss_value
+
+    def grads(self, x):
+        # assert self.loss_value is not None
+        # grad_values = np.copy(self.grad_values)
+        # self.loss_value = None
+        # self.grad_values = None
+        return self.grad_values
+
+    def step_callback(self, x):
+        ## early stopping tracking
+        predLoss_val_temp, _, _ = np.float64(self.predLoss_val())
+        if predLoss_val_temp > self.predLoss_val_prev:
+            self.predLoss_val_cntr += 1
+        else:
+            self.predLoss_val_cntr = 0
+            self.predLoss_val_prev = predLoss_val_temp
+
+        #write tensorboard variables
+        tf.summary.scalar('loss_train', self.loss_value)
+        tf.summary.scalar('loss_val', predLoss_val_temp)
+        tf.summary.scalar('predLoss_val_cntr', self.predLoss_val_cntr)
+        tf.summary.scalar('regL1', self.regL1)
+        tf.summary.scalar('regL2', self.regL2)
+
+        # increment the global step counter
+        self.global_step = self.global_step + 1
+
+        return self.scheduler.on_epoch_end(epoch=self.global_step, monitor=predLoss_val_temp)
+
+        # #return true to scipy optimizer to stop optimization loop
+        # if self.predLoss_val_cntr > self.early_stop_limit:
+        #     print("stop")
+        #     sys.stdout.flush()
+        #     return True
+        # else:
+        #     return False
+
+
 def create_model(args, verbose=False):
 
-    # manualSeed = 1
-    # np.random.seed(manualSeed)
+    manualSeed = 1
+    np.random.seed(manualSeed)
 
     # random.seed(manualSeed)
     # torch.manual_seed(manualSeed)
@@ -153,20 +245,29 @@ def load_model(args, root, load_start_epoch=False):
     #     args.start_epoch = tf.train.get_global_step().numpy()
     # return f
 
-def compute_log_p_x(model, x_mb):
+@tf.function
+def loss_func(model, x_mb, x, regL2 = np.float32(-1.0), regL1 = np.float32(-1.0)):
+    loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
+    regL2_penalty = np.float32(0)
+    regL1_penalty = np.float32(0)
+    if regL2 >= 0:  regL2_penalty = tf.reduce_mean(tf.square(x))
+    if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
+    return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
 
+@tf.function
+def compute_log_p_x(model, x_mb):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
     y_mb, log_diag_j_mb = model(x_mb)
     log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
-def compute_kl(model, args):
-    d_mb = tfp.distributions.Normal(tf.zeros((args.batch_dim, 2)),
-                                      tf.ones((args.batch_dim, 2)))
-    y_mb = d_mb.sample()
-    x_mb, log_diag_j_mb = model(y_mb)
-    log_p_y_mb = tf.reduce_sum(d_mb.log_prob(y_mb), axis=-1)
-    return log_p_y_mb - log_diag_j_mb + energy2d(args.dataset, x_mb) + tf.reduce_sum(tf.nn.relu(x_mb.abs() - 6) ** 2, axis=-1)
+# def compute_kl(model, args):
+#     d_mb = tfp.distributions.Normal(tf.zeros((args.batch_dim, 2)),
+#                                       tf.ones((args.batch_dim, 2)))
+#     y_mb = d_mb.sample()
+#     x_mb, log_diag_j_mb = model(y_mb)
+#     log_p_y_mb = tf.reduce_sum(d_mb.log_prob(y_mb), axis=-1)
+#     return log_p_y_mb - log_diag_j_mb + energy2d(args.dataset, x_mb) + tf.reduce_sum(tf.nn.relu(x_mb.abs() - 6) ** 2, axis=-1)
 
 # def train_density2d(model, optimizer, scheduler, args):
 #     iterator = trange(args.steps, smoothing=0, dynamic_ncols=True)
@@ -200,7 +301,7 @@ def compute_kl(model, args):
 #         scheduler.step(loss)
 #
 #         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
-
+@tf.function
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     
     epoch = args.start_epoch
@@ -257,10 +358,25 @@ class parser_:
     pass
 
 def main():
-    config = tf.compat.v1.ConfigProto()
-    config.gpu_options.allow_growth = True
-    config.log_device_placement = True
-    tf.compat.v1.enable_eager_execution(config=config)
+    # config = tf.compat.v1.ConfigProto()
+    # config.gpu_options.allow_growth = True
+    # config.log_device_placement = True
+    # tf.compat.v1.enable_eager_execution(config=config)
+
+    # tf.config.experimental_run_functions_eagerly(True)
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
+
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
@@ -271,7 +387,6 @@ def main():
     args.epochs = 5000
     args.patience = 10
     args.cooldown = 10
-    args.early_stopping = 100
     args.decay = 0.5
     args.min_lr = 5e-4
     args.flows = 1
@@ -282,6 +397,12 @@ def main():
     args.load = ''#r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-03-01-58-21'
     args.save = True
     args.tensorboard = 'tensorboard'
+    args.early_stopping = 10
+    args.maxiter = 500
+    args.factr = 1E1
+    args.optimizer = 'LBFGS' #or None
+    args.regL2 = 0.0001
+    args.regL1 = -1
 
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--device', type=str, default='cuda:0')
@@ -316,6 +437,7 @@ def main():
     # print('Arguments:')
     # pprint.pprint(args.__dict__)
 
+
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
         args.dataset, args.layers, args.hidden_dim, args.flows, '_' + args.residual if args.residual else '',
@@ -324,6 +446,7 @@ def main():
     print('Loading dataset..')
 
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
+
     
     if args.save and not args.load:
         print('Creating directory experiment..')
@@ -335,34 +458,32 @@ def main():
     with tf.device(args.device):
         model = create_model(args, verbose=True)
 
-    # ## debug
+    ### debug
     # data_loader_train_ = tf.contrib.eager.Iterator(data_loader_train)
     # x = data_loader_train_.get_next()
     # a = model(x)
 
-    print('Creating optimizer..')
-    with tf.device(args.device):
-        optimizer = tf.optimizers.Adam()
-    # optimizer = Adam(model.parameters(), lr=args.learning_rate, amsgrad=True, polyak=args.polyak)
-
     ## tensorboard and saving
     writer = tf.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
     writer.set_as_default()
-    root = tf.train.Checkpoint(optimizer=optimizer,
-                               model=model,
-                               optimizer_step=tf.compat.v1.train.get_or_create_global_step())
-
-    args.start_epoch = 0
-    if args.load:
-        load_model(args, root, load_start_epoch=True)
-
-
     tf.compat.v1.train.get_or_create_global_step()
-    # global_step.assign(0)
+
+    root = None
+    args.start_epoch = 0
+    if not args.optimizer:
+        print('Creating optimizer..')
+        with tf.device(args.device):
+            optimizer = tf.optimizers.Adam()
+        root = tf.train.Checkpoint(optimizer=optimizer,
+                                   model=model,
+                                   optimizer_step=tf.compat.v1.train.get_global_step())
+
+        if args.load:
+            load_model(args, root, load_start_epoch=True)
 
     print('Creating scheduler..')
     # use baseline to avoid saving early on
-    scheduler = EarlyStopping(model=model, patience=10, args = args, root = root)
+    scheduler = EarlyStopping(model=model, patience=args.early_stopping, args = args, root = root)
 
     with tf.device(args.device):
         # print('Training..')
@@ -371,8 +492,40 @@ def main():
         # elif args.experiment == 'energy2d':
         #     train_energy2d(model, optimizer, scheduler, args)
         # else:
-        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
 
+        ## SGD
+        if not args.optimizer:
+            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+        ## LBFGS
+        else:
+            loss_train = functools.partial(loss_func, x_mb=data_loader_train, model=model,
+                                           regL2=args.regL2, regL1=args.regL1)
+            loss_val = functools.partial(loss_func, x_mb=data_loader_valid, model=model,
+                                         regL2=np.float64(-1.0), regL1=np.float64(-1.0), x=np.float64(0))
+
+            with tf.device("CPU:0"):
+                with tf.GradientTape() as tape:
+                    prediction_loss, _, _, _, _ = loss_train(x=np.float64(0))
+                    var_list = tape.watched_variables()
+
+            x_init = []
+            for v in var_list:
+                x_init.extend(np.array(tf.reshape(v, [-1])))
+
+            var_shapes = []
+            var_locs = [0]
+            for v in var_list:
+                var_shapes.append(np.array(tf.shape(v)))
+                var_locs.append(np.prod(np.array(tf.shape(v))))
+            var_locs = np.cumsum(var_locs)
+
+            evaluator = Evaluator(loss_train, loss_val, 0, scheduler, var_list, var_shapes, var_locs)
+
+            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float64(x_init),
+                                             fprime=evaluator.grads, maxiter=args.maxiter, factr=args.factr,
+                                             callback=evaluator.step_callback)
+
+            print(info)
 
 if __name__ == '__main__':
     main()

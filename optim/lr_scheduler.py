@@ -92,7 +92,8 @@ class EarlyStopping:
       self.wait = 0
       if self.restore_best_weights:
         self.best_weights = self.model.get_weights()
-      self.save_model()
+      if self.save_model():
+        self.save_model()
     else:
       self.wait += 1
       if self.wait >= self.patience:
