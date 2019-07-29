@@ -107,4 +107,5 @@ class EarlyStopping:
     return self.stop_training
 
   def save_model(self):
-    self.root.save(os.path.join(self.args.load or self.args.path, 'checkpoint.pt'))
+    if self.root:
+      self.root.save(os.path.join(self.args.load or self.args.path, 'checkpoint.pt'))

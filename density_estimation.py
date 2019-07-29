@@ -408,10 +408,10 @@ def main():
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 10
-    args.maxiter = 500
+    args.maxiter = 1000
     args.factr = 1E1
     args.optimizer = "LBFGS" #or None
-    args.regL2 = 0.0001
+    args.regL2 = -1
     args.regL1 = -1
     args.manualSeed = 1
 
