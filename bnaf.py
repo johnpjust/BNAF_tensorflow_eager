@@ -35,7 +35,7 @@ class BNAF(tf.keras.models.Sequential):
     Normalizing Flow.
     """
 
-    def __init__(self, layers=None, name=None, res: str = None):
+    def __init__(self, layers=None, name=None, res: str = None, dtype_in = tf.float32):
     # def __init__(self, *args, res: str = None):
         """
         Parameters
@@ -170,7 +170,7 @@ class MaskedWeight(tf.keras.layers.Layer):
     Moreover, it uses Weight Normalization (https://arxiv.org/abs/1602.07868) for stability.
     """
     
-    def __init__(self, in_features : int, out_features : int, dim : int, bias : bool = True):
+    def __init__(self, in_features : int, out_features : int, dim : int, bias : bool = True, dtype_in = tf.float32):
         """
         Parameters
         ----------
@@ -186,6 +186,10 @@ class MaskedWeight(tf.keras.layers.Layer):
 
         super(MaskedWeight, self).__init__()
         self.in_features, self.out_features, self.dim = in_features, out_features, dim
+        self.dtype_in = dtype_in
+        if self.dtype_in == tf.float32:
+            self.dtype_in_np = np.float32
+        else: self.dtype_in_np = np.float64
 
         weight = np.zeros((out_features, in_features))
 
@@ -215,15 +219,15 @@ class MaskedWeight(tf.keras.layers.Layer):
                    i * (in_features // dim):(i + 1) * (in_features // dim)] = 1
 
         # self.register_buffer('mask_d', mask_d)
-        self.mask_d = tf.constant(name='mask_d', value=mask_d, dtype=tf.float32)
+        self.mask_d = tf.constant(name='mask_d', value=mask_d, dtype=self.dtype_in)
 
-        mask_o = np.ones_like(weight)
+        mask_o = np.ones_like(weight, dtype=self.dtype_in_np)
         for i in range(dim):
             mask_o[i * (out_features // dim):(i + 1) * (out_features // dim),
                    i * (in_features // dim):] = 0
             
         # self.register_buffer('mask_o', mask_o)
-        self.mask_o = tf.constant(name='mask_o', value=mask_o, dtype=tf.float32)
+        self.mask_o = tf.constant(name='mask_o', value=mask_o, dtype=self.dtype_in)
 
     def get_weights(self):
         """

@@ -40,6 +40,9 @@ def load_dataset(args):
     # data = pd.read_csv(r'C:\Users\just\PycharmProjects\BNAF\data\gas\ethylene_methane.txt', delim_whitespace=True, header='infer')
     # data.to_pickle('data/gas/ethylene_methane.pickle')
 
+    tf.random.set_seed(args.manualSeed)
+    np.random.seed(args.manualSeed)
+
     if args.dataset == 'gas':
         # dataset = GAS('data/gas/ethylene_CO.pickle')
         dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
@@ -84,9 +87,9 @@ def load_dataset(args):
         ##data_loader_test.get_next()
 
     else:
-        dataset_train = dataset.trn.x
-        dataset_valid = dataset.val.x
-        dataset_test = dataset.tst.x
+        dataset_train = dataset.trn.x.astype(np.float64)
+        dataset_valid = dataset.val.x.astype(np.float64)
+        dataset_test = dataset.tst.x.astype(np.float64)
 
     args.n_dims = dataset.n_dims
 
@@ -134,7 +137,7 @@ def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
 
     grad_list = [v if v is not None else 0 for v in grad_list]
 
-    return np.float32(prediction_loss), np.float32(grad_list), np.float32(regL1_penalty), np.float32(regL2_penalty)
+    return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
 
 
 class Evaluator(object):
@@ -144,14 +147,14 @@ class Evaluator(object):
         self.loss_train_fun = loss_train_fun #func_tools partial function with model, features, and labels already loaded
         self.predLoss_val = loss_val #func_tools partial function with model, features, and labels already loaded
         self.global_step = global_step #tf variable for tracking update steps from scipy optimizer step_callback
-        self.predLoss_val_prev, _, _, _, _ = np.float32(loss_val()) + 10.0 #state variable of loss for early stopping
+        self.predLoss_val_prev, _, _= np.float64(loss_val()) + 10.0 #state variable of loss for early stopping
         self.predLoss_val_cntr = 0 #counter to watch for early stopping
         # self.early_stop_limit = early_stop_limit #number of cycles of increasing validation loss before stopping
         self.scheduler = scheduler
         self.var_shapes = var_shapes #list of shapes of each tf variable
         self.var_list = var_list #list of trainable tf variables
         self.var_locs = var_locs
-        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float32(0))
+        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float64(0))
         self.grads_values = None
 
     def loss(self, x):
@@ -168,7 +171,7 @@ class Evaluator(object):
 
     def step_callback(self, x):
         ## early stopping tracking
-        predLoss_val_temp, _, _ = np.float32(self.predLoss_val())
+        predLoss_val_temp, _, _ = np.float64(self.predLoss_val())
         if predLoss_val_temp > self.predLoss_val_prev:
             self.predLoss_val_cntr += 1
         else:
@@ -176,11 +179,11 @@ class Evaluator(object):
             self.predLoss_val_prev = predLoss_val_temp
 
         #write tensorboard variables
-        tf.summary.scalar('loss_train', self.loss_value)
-        tf.summary.scalar('loss_val', predLoss_val_temp)
-        tf.summary.scalar('predLoss_val_cntr', self.predLoss_val_cntr)
-        tf.summary.scalar('regL1', self.regL1)
-        tf.summary.scalar('regL2', self.regL2)
+        tf.summary.scalar('loss_train', self.loss_value, step=self.global_step)
+        tf.summary.scalar('loss_val', predLoss_val_temp, step=self.global_step)
+        tf.summary.scalar('predLoss_val_cntr', self.predLoss_val_cntr, step=self.global_step)
+        tf.summary.scalar('regL1', self.regL1, step=self.global_step)
+        tf.summary.scalar('regL2', self.regL2, step=self.global_step)
 
         # increment the global step counter
         self.global_step = self.global_step + 1
@@ -198,12 +201,14 @@ class Evaluator(object):
 
 def create_model(args, verbose=False):
 
-    manualSeed = 1
-    tf.random.set_random_seed(manualSeed)
-    np.random.seed(manualSeed)
-
     # random.seed(manualSeed)
     # torch.manual_seed(manualSeed)
+
+    tf.random.set_seed(args.manualSeed)
+    np.random.seed(args.manualSeed)
+
+    if args.optimizer: dtype_in = tf.float64
+    else: dtype_in = tf.float32
 
     flows = []
     for f in range(args.flows):
@@ -211,13 +216,13 @@ def create_model(args, verbose=False):
         layers = []
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
-                                       args.n_dims * args.hidden_dim, dim=args.n_dims))
-            layers.append(Tanh())
+                                       args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
+            layers.append(Tanh(dtype_in=dtype_in))
 
         flows.append(
-            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims), Tanh()] + \
+            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
                layers + \
-               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims)], \
+               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
              res=args.residual if f < args.flows - 1 else None
              )
         )
@@ -251,10 +256,10 @@ def load_model(args, root, load_start_epoch=False):
     # return f
 
 @tf.function
-def loss_func(model, x_mb, x, regL2 = np.float32(-1.0), regL1 = np.float32(-1.0)):
+def loss_func(model, x_mb, x, regL2 = np.float64(-1.0), regL1 = np.float64(-1.0)):
     loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
-    regL2_penalty = np.float32(0)
-    regL1_penalty = np.float32(0)
+    regL2_penalty = np.float64(0)
+    regL1_penalty = np.float64(0)
     if regL2 >= 0:  regL2_penalty = tf.reduce_mean(tf.square(x))
     if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
     return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
@@ -405,9 +410,10 @@ def main():
     args.early_stopping = 10
     args.maxiter = 500
     args.factr = 1E1
-    args.optimizer = None #or None
+    args.optimizer = "LBFGS" #or None
     args.regL2 = 0.0001
     args.regL1 = -1
+    args.manualSeed = 1
 
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--device', type=str, default='cuda:0')
@@ -506,11 +512,11 @@ def main():
             loss_train = functools.partial(loss_func, x_mb=data_loader_train, model=model,
                                            regL2=args.regL2, regL1=args.regL1)
             loss_val = functools.partial(loss_func, x_mb=data_loader_valid, model=model,
-                                         regL2=np.float32(-1.0), regL1=np.float32(-1.0), x=np.float32(0))
+                                         regL2=np.float64(-1.0), regL1=np.float64(-1.0), x=np.float64(0))
 
             with tf.device("CPU:0"):
                 with tf.GradientTape() as tape:
-                    prediction_loss, _, _, _, _ = loss_train(x=np.float32(0))
+                    prediction_loss, _, _ = loss_train(x=np.float64(0))
                     var_list = tape.watched_variables()
 
             x_init = []
@@ -526,7 +532,7 @@ def main():
 
             evaluator = Evaluator(loss_train, loss_val, 0, scheduler, var_list, var_shapes, var_locs)
 
-            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float32(x_init),
+            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float64(x_init),
                                              fprime=evaluator.grads, maxiter=args.maxiter, factr=args.factr,
                                              callback=evaluator.step_callback)
 
@@ -539,3 +545,4 @@ if __name__ == '__main__':
 
 #### tensorboard --logdir=C:\Users\just\PycharmProjects\BNAF\tensorboard\checkpoint
 ## http://localhost:6006/
+
