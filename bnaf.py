@@ -3,12 +3,25 @@ import math
 import numpy as np
 import tensorflow_probability as tfp
 
+
 class Sequential(tf.keras.models.Sequential):
     """
     Class that extends ``torch.nn.Sequential`` for computing the output of
     the function alongside with the log-det-Jacobian of such transformation.
     """
-    
+    # def __init__(self, layers=None, name=None)#, dtype_in = tf.float32):
+    #     super(Sequential, self).__init__(name=name)
+    #     self.supports_masking = True
+    #     self._build_input_shape = None
+    #     self._compute_output_and_mask_jointly = True
+    #
+    #     self._layer_call_argspecs = {}
+    #     self.dtype_in = dtype_in
+    #     # Add to the model any layers passed to the constructor.
+    #     if layers:
+    #         for layer in layers:
+    #             self.add(layer)
+
     # def call(self, inputs: tf.Tensor):
     def call(self, inputs, training=None, mask=None):
         """
@@ -21,7 +34,8 @@ class Sequential(tf.keras.models.Sequential):
         The output tensor and the log-det-Jacobian of this transformation.
         """
         
-        log_det_jacobian = 0.
+        log_det_jacobian = tf.cast(0., tf.float32)
+        # log_det_jacobian = 0.
         # for i, module in enumerate(self._modules.values()):
         for i, layer in enumerate(self.layers):
             inputs, log_det_jacobian_ = layer(inputs)
@@ -78,7 +92,6 @@ class BNAF(tf.keras.models.Sequential):
         -------
         The output tensor and the log-det-Jacobian of this transformation.
         """
-
         outputs = inputs
         grad = None
 
@@ -157,7 +170,7 @@ class Permutation(tf.keras.layers.Layer):
         """
         
         # return inputs[:,self.p], 0
-        return self.p.forward(inputs), 0
+        return self.p.forward(inputs), 0.
     
     def __repr__(self):
         return 'Permutation(in_features={}, p={})'.format(self.in_features, self.p)

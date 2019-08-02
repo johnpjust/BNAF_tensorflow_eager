@@ -55,15 +55,17 @@ def load_dataset(args):
     elif args.dataset == 'power':
         dataset = POWER('data/power/data.npy')
     elif args.dataset == 'gq_ms_wheat':
-        dataset = GQ_MS('data/GQ_MS/wheat_perms.xlsx')
+        dataset = GQ_MS('data/GQ_MS/wheat_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     elif args.dataset == 'gq_ms_soy':
-        dataset = GQ_MS('data/GQ_MS/soy_perms.xlsx')
+        dataset = GQ_MS('data/GQ_MS/soy_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     elif args.dataset == 'gq_ms_corn':
-        dataset = GQ_MS('data/GQ_MS/corn_perms.xlsx')
+        dataset = GQ_MS('data/GQ_MS/corn_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     elif args.dataset == 'gq_ms_canola':
-        dataset = GQ_MS('data/GQ_MS/canola_perms.xlsx')
+        dataset = GQ_MS('data/GQ_MS/canola_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     elif args.dataset == 'gq_ms_barley':
-        dataset = GQ_MS('data/GQ_MS/barley_perms.xlsx')
+        dataset = GQ_MS('data/GQ_MS/barley_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
+    elif args.dataset == 'gq_ms_wheat_johnson':
+        dataset = GQ_MS('data/GQ_MS/wheat_perms_johnsonxfm.csv', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     else:
         raise RuntimeError()
 
@@ -198,14 +200,13 @@ class Evaluator(object):
         # else:
         #     return False
 
-
 def create_model(args, verbose=False):
 
     # random.seed(manualSeed)
     # torch.manual_seed(manualSeed)
 
-    tf.random.set_seed(args.manualSeed)
-    np.random.seed(args.manualSeed)
+    tf.random.set_seed(args.manualSeedw)
+    np.random.seed(args.manualSeedw)
 
     if args.optimizer: dtype_in = tf.float64
     else: dtype_in = tf.float32
@@ -223,14 +224,14 @@ def create_model(args, verbose=False):
             BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
                layers + \
                [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
-             res=args.residual if f < args.flows - 1 else None
+             res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
              )
         )
 
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
 
-        model = Sequential(flows)
+        model = Sequential(flows)#, dtype_in=dtype_in)
         # params = np.sum(np.sum(p.numpy() != 0) if len(p.numpy().shape) > 1 else p.numpy().shape
         #              for p in model.trainable_variables)[0]
     
@@ -390,7 +391,7 @@ def main():
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'gq_ms_wheat' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 200
     args.clip_norm = 0.1
@@ -399,55 +400,22 @@ def main():
     args.cooldown = 10
     args.decay = 0.5
     args.min_lr = 5e-4
-    args.flows = 1
+    args.flows = 3
     args.layers = 1
-    args.hidden_dim = 3
+    args.hidden_dim = 6
     args.residual = 'gated'
     args.expname = ''
-    args.load = ''#r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-03-01-58-21'
+    args.load = ''#r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 10
     args.maxiter = 1000
     args.factr = 1E1
-    args.optimizer = "LBFGS" #or None
+    args.optimizer = None#"LBFGS" #or None
     args.regL2 = -1
     args.regL1 = -1
     args.manualSeed = 1
-
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--device', type=str, default='cuda:0')
-    # parser.add_argument('--dataset', type=str, default='miniboone',
-    #                     choices=['gas', 'bsds300', 'hepmass', 'miniboone', 'power'])
-    #
-    # parser.add_argument('--learning_rate', type=float, default=1e-2)
-    # parser.add_argument('--batch_dim', type=int, default=200)
-    # parser.add_argument('--clip_norm', type=float, default=0.1)
-    # parser.add_argument('--epochs', type=int, default=1000)
-    #
-    # parser.add_argument('--patience', type=int, default=20)
-    # parser.add_argument('--cooldown', type=int, default=10)
-    # parser.add_argument('--early_stopping', type=int, default=100)
-    # parser.add_argument('--decay', type=float, default=0.5)
-    # parser.add_argument('--min_lr', type=float, default=5e-4)
-    # parser.add_argument('--polyak', type=float, default=0.998)
-    #
-    # parser.add_argument('--flows', type=int, default=5)
-    # parser.add_argument('--layers', type=int, default=1)
-    # parser.add_argument('--hidden_dim', type=int, default=10)
-    # parser.add_argument('--residual', type=str, default='gated',
-    #                    choices=[None, 'normal', 'gated'])
-    #
-    # parser.add_argument('--expname', type=str, default='')
-    # parser.add_argument('--load', type=str, default=None)
-    # parser.add_argument('--save', action='store_true')
-    # parser.add_argument('--tensorboard', type=str, default='tensorboard')
-    
-    # args = parser.parse_args()
-
-    # print('Arguments:')
-    # pprint.pprint(args.__dict__)
-
+    args.manualSeedw = None
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
@@ -456,6 +424,9 @@ def main():
 
     print('Loading dataset..')
 
+    args.normalize = True
+    args.xfm = False
+    args.shuffle = True
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
 
     
