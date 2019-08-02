@@ -64,8 +64,6 @@ def load_dataset(args):
         dataset = GQ_MS('data/GQ_MS/canola_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     elif args.dataset == 'gq_ms_barley':
         dataset = GQ_MS('data/GQ_MS/barley_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
-    elif args.dataset == 'gq_ms_wheat_johnson':
-        dataset = GQ_MS('data/GQ_MS/wheat_perms_johnsonxfm.csv', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
     else:
         raise RuntimeError()
 
@@ -391,11 +389,11 @@ def main():
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'gq_ms_wheat' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
-    args.batch_dim = 200
+    args.batch_dim = 500
     args.clip_norm = 0.1
-    args.epochs = 5000
+    args.epochs = 500
     args.patience = 10
     args.cooldown = 10
     args.decay = 0.5
@@ -408,7 +406,7 @@ def main():
     args.load = ''#r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
     args.save = True
     args.tensorboard = 'tensorboard'
-    args.early_stopping = 10
+    args.early_stopping = 30
     args.maxiter = 1000
     args.factr = 1E1
     args.optimizer = None#"LBFGS" #or None
@@ -424,7 +422,7 @@ def main():
 
     print('Loading dataset..')
 
-    args.normalize = True
+    args.normalize = False
     args.xfm = False
     args.shuffle = True
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)

@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.utils import shuffle
+import scipy.stats
 
 class GQ_MS:
 
@@ -35,8 +36,22 @@ def load_data(file, normalize=True, logxfm = False, shuffledata=True):
         data = shuffle(data)
         data.reset_index(inplace=True, drop=True)
     if logxfm:
-        data.iloc[:,1] = np.log(data.iloc[:,1])
-        data.iloc[:, 3] = np.log(data.iloc[:, 3])
+        ind = 0
+        dist = scipy.stats.johnsonsu.fit(data.iloc[:, ind])
+        data.iloc[:, ind] = np.arcsinh((data.iloc[:, ind] - dist[-2])/dist[-1])*dist[1] + dist[0]
+
+        ind = 1
+        dist = scipy.stats.johnsonsu.fit(data.iloc[:, ind])
+        data.iloc[:, ind] = np.arcsinh((data.iloc[:, ind] - dist[-2]) / dist[-1]) * dist[1] + dist[0]
+
+        ind = 2
+        dist = scipy.stats.johnsonsu.fit(data.iloc[:, ind])
+        data.iloc[:, ind] = np.arcsinh((data.iloc[:, ind] - dist[-2])/dist[-1])*dist[1] + dist[0]
+
+        ind = 3
+        dist = scipy.stats.johnsonsu.fit(data.iloc[:, ind])
+        data.iloc[:, ind] = np.arcsinh((data.iloc[:, ind] - dist[-2])/dist[-1])*dist[1] + dist[0]
+
         data = data[~data.isin([np.nan, np.inf, -np.inf]).any(1)]
     if normalize:
         return (data - data.mean()) / data.std()
