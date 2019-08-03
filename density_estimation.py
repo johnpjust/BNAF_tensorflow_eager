@@ -393,7 +393,7 @@ def main():
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 500
     args.clip_norm = 0.1
-    args.epochs = 500
+    args.epochs = 1000
     args.patience = 10
     args.cooldown = 10
     args.decay = 0.5
@@ -423,7 +423,7 @@ def main():
     print('Loading dataset..')
 
     args.normalize = False
-    args.xfm = False
+    args.xfm = True
     args.shuffle = True
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
 
