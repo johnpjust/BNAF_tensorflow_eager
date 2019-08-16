@@ -389,11 +389,11 @@ def main():
 
     args = parser_()
     args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'gq_ms_wheat' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'gq_ms_barley' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 500
     args.clip_norm = 0.1
-    args.epochs = 1000
+    args.epochs = 5000
     args.patience = 10
     args.cooldown = 10
     args.decay = 0.5
@@ -407,7 +407,7 @@ def main():
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 30
-    args.maxiter = 1000
+    args.maxiter = 5000
     args.factr = 1E1
     args.optimizer = None#"LBFGS" #or None
     args.regL2 = -1
@@ -447,6 +447,9 @@ def main():
     writer = tf.summary.create_file_writer(os.path.join(args.tensorboard, args.load or args.path))
     writer.set_as_default()
     tf.compat.v1.train.get_or_create_global_step()
+
+    global_step = tf.compat.v1.train.get_global_step()
+    global_step.assign(0)
 
     root = None
     args.start_epoch = 0
