@@ -39,7 +39,7 @@ class Sequential(tf.keras.models.Sequential):
         # log_det_jacobian = 0.
         # for i, module in enumerate(self._modules.values()):
         for i, layer in enumerate(self.layers):
-            inputs, log_det_jacobian_ = layer(inputs)
+            inputs, log_det_jacobian_ = layer(inputs, training=training)
             log_det_jacobian = log_det_jacobian + log_det_jacobian_
         return inputs, log_det_jacobian
 
@@ -101,7 +101,7 @@ class BNAF(tf.keras.models.Sequential):
         ### apply layers in TF and get gradients...module in pytorch == layers in tf
         # for module in self._modules.values(): #pytorch implementation
         for layer in self.layers:
-            outputs, grad = layer(outputs, grad) #not sure if use "layer" or "layer.call"
+            outputs, grad = layer(outputs, grad, training=training) #not sure if use "layer" or "layer.call"
             grad = grad if len(grad.shape) == 4 else tf.reshape(grad, (grad.shape + [1, 1]))
 
         # return outputs, grad ## debug
@@ -284,7 +284,7 @@ class MaskedWeight(tf.keras.layers.Layer):
 
     # def forward(self, inputs, grad : torch.Tensor = None):
     @tf.function
-    def call(self, inputs: tf.Tensor, grad: tf.Tensor = None):
+    def call(self, inputs: tf.Tensor, grad: tf.Tensor = None, **kwargs):
         """
         Parameters
         ----------
@@ -334,7 +334,7 @@ class Tanh(tf.keras.layers.Layer):
         self.dtype_in = dtype_in
 
     @tf.function
-    def call(self, inputs, grad : tf.Tensor = None):
+    def call(self, inputs, grad : tf.Tensor = None, **kwargs):
         """
         Parameters
         ----------
@@ -352,6 +352,52 @@ class Tanh(tf.keras.layers.Layer):
 
         g = - 2 * tf.add(tf.subtract(inputs, tf.cast(tf.math.log(2.), self.dtype_in)), tf.keras.activations.softplus(- 2. * inputs))
         return tf.tanh(inputs), tf.add(tf.reshape(g,grad.shape), grad) if grad is not None else g
+
+class CustomBatchnorm(tf.keras.layers.BatchNormalization):
+    ##gamma_constraint = lambda x: tf.exp(x) + 1e-6
+    ##gamma_constraint = lambda x: tf.nn.relu(x) + 1e-6
+    @tf.function
+    def call(self, inputs, grad, training=None):
+        normed_vars = super().call(inputs, training)
+        g = self._inverse_log_det_jacobian(inputs, not training)
+        if grad is not None:
+            bn_g = tf.reshape(g, grad.shape[1:])
+            zs = tf.zeros([g.shape[0], *bn_g.shape], dtype=tf.float32)  + tf.expand_dims(bn_g,0)
+            g = tf.add(zs, grad)
+        return normed_vars, g
+    ##tfp.bijectors.batch_normalization()
+    def _inverse_log_det_jacobian(self, y, use_saved_statistics=False):
+        if not self.built:
+          # Create variables.
+          self.build(y.shape)
+
+        event_dims = self.axis
+        reduction_axes = [i for i in range(len(y.shape)) if i not in event_dims]
+
+        # At training-time, ildj is computed from the mean and log-variance across
+        # the current minibatch.
+        # We use multiplication instead of tf.where() to get easier broadcasting.
+        log_variance = tf.math.log(
+            tf.where(use_saved_statistics,
+                self.moving_variance,
+                tf.nn.moments(x=y, axes=reduction_axes, keepdims=True)[1]) +
+            self.epsilon)
+
+        # to happen across all axes.
+        # `gamma` and `log Var(y)` reductions over event_dims.
+        # Log(total change in area from gamma term).
+        log_gamma = tf.math.log(self.gamma) if self.gamma is not None else 0
+        log_total_gamma = tf.reduce_sum(log_gamma)
+
+        # Log(total change in area from log-variance term).
+        log_total_variance = tf.reduce_sum(log_variance)
+        # The ildj is scalar, as it does not depend on the values of x and are
+        # constant across minibatch elements.
+
+        ## by appendix B of https://arxiv.org/pdf/1705.07057.pdf the gamma should be exponentiated
+        ## hence the gamma contraint is already tf.exp(x) + epsilon
+        return log_gamma - 0.5 * log_variance
+
 ## tensorflow probability implementation
 # class MaskedWeight_tfp(tfp.bijectors.Bijector):
 #

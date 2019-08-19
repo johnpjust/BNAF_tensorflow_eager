@@ -213,19 +213,40 @@ def create_model(args, verbose=False):
     for f in range(args.flows):
         #build internal layers for a single flow
         layers = []
+
+        ## V1 known to work
+        # for _ in range(args.layers - 1):
+        #     layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
+        #                                args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
+        #     layers.append(Tanh(dtype_in=dtype_in))
+        #
+        # flows.append(
+        #     BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
+        #        layers + \
+        #        [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+        #      res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
+        #      )
+        # )
+
+        ## V2...with BN
+
+        g_constraint = lambda x: tf.nn.relu(x) + 1e-6
+        # g_constraint = lambda x: tf.exp(x) + 1e-6
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
                                        args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
+            layers.append(CustomBatchnorm(gamma_constraint = g_constraint))
             layers.append(Tanh(dtype_in=dtype_in))
 
         flows.append(
-            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
+            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint), Tanh(dtype_in=dtype_in)] + \
                layers + \
-               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+               [CustomBatchnorm(gamma_initializer = 'ones', scale=False), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
              res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
              )
         )
 
+        ## continue on.....
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
 
@@ -264,9 +285,9 @@ def loss_func(model, x_mb, x, regL2 = np.float64(-1.0), regL1 = np.float64(-1.0)
     return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
 
 # @tf.function
-def compute_log_p_x(model, x_mb):
+def compute_log_p_x(model, x_mb, training = None):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
-    y_mb, log_diag_j_mb = model(x_mb)
+    y_mb, log_diag_j_mb = model(x_mb, training=training)
     log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
@@ -321,7 +342,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         
         for x_mb in data_loader_train:
             with tf.GradientTape() as tape:
-                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb)) #negative -> minimize to maximize liklihood
+                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb, training=True)) #negative -> minimize to maximize liklihood
 
             grads = tape.gradient(loss, model.trainable_variables)
             grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
