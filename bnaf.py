@@ -246,7 +246,7 @@ class MaskedWeight(tf.keras.layers.Layer):
             
         # self.register_buffer('mask_o', mask_o)
         self.mask_o = tf.constant(name='mask_o', value=mask_o, dtype=self.dtype_in)
-    #
+
     def get_weights(self):
         """
         Computes the weight matrix using masks and weight normalization.
@@ -397,34 +397,3 @@ class CustomBatchnorm(tf.keras.layers.BatchNormalization):
         ## by appendix B of https://arxiv.org/pdf/1705.07057.pdf the gamma should be exponentiated
         ## hence the gamma contraint is already tf.exp(x) + epsilon
         return log_gamma - 0.5 * log_variance
-
-## tensorflow probability implementation
-# class MaskedWeight_tfp(tfp.bijectors.Bijector):
-#
-#     def __init__(self, validate_args=False, name="MaskedWeight_tfp", Nin, Nout, init='glorot'):
-#         super(MaskedWeight_tfp, self).__init__(
-#             validate_args=validate_args,
-#             forward_min_event_ndims=0,
-#             name=name)
-#
-#         self.diag_transform = tfp.bijectors.TransformDiagonal(diag_bijector=tfp.bijectors.Exp())
-#         if init=='glorot':
-#             pass
-#         elif init=='he':
-#             pass
-#
-#     def _forward(self, x):
-#         return tf.matmul(x, self._weights)
-#
-#     def _inverse(self, y):
-#         return tf.log(y)
-#
-#     def _inverse_log_det_jacobian(self, y):
-#         return -self._forward_log_det_jacobian(self._inverse(y))
-#
-#     def _forward_log_det_jacobian(self, x):
-#         # Notice that we needn't do any reducing, even when`event_ndims > 0`.
-#         # The base Bijector class will handle reducing for us; it knows how
-#         # to do so because we called `super` `__init__` with
-#         # `forward_min_event_ndims = 0`.
-#         return x

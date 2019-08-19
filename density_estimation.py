@@ -235,13 +235,13 @@ def create_model(args, verbose=False):
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
                                        args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
-            layers.append(CustomBatchnorm(gamma_constraint = g_constraint))
+            layers.append(CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum))
             layers.append(Tanh(dtype_in=dtype_in))
 
         flows.append(
-            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint), Tanh(dtype_in=dtype_in)] + \
+            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum), Tanh(dtype_in=dtype_in)] + \
                layers + \
-               [CustomBatchnorm(gamma_initializer = 'ones', scale=False), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+               [CustomBatchnorm(scale=False, momentum=args.momentum), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
              res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
              )
         )
@@ -352,7 +352,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
 
             tf.compat.v1.train.get_global_step().assign_add(1)
         train_loss = np.mean(train_loss)
-        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
+        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb, training=True)) for x_mb in data_loader_valid])
 
         # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
         #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
@@ -415,8 +415,8 @@ def main():
     args.batch_dim = 500
     args.clip_norm = 0.1
     args.epochs = 5000
-    args.patience = 10
-    args.cooldown = 10
+    args.patience = 30
+    # args.cooldown = 10
     args.decay = 0.5
     args.min_lr = 5e-4
     args.flows = 3
@@ -435,6 +435,7 @@ def main():
     args.regL1 = -1
     args.manualSeed = 1
     args.manualSeedw = None
+    args.momentum = 0.9
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
@@ -448,7 +449,6 @@ def main():
     args.shuffle = True
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
 
-    
     if args.save and not args.load:
         print('Creating directory experiment..')
         os.mkdir(args.path)
