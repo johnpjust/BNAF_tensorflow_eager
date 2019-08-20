@@ -7,105 +7,66 @@ import tensorflow_probability as tfp
 import numpy as np
 from bnaf import *
 from optim.lr_scheduler import *
+import glob
+import random
 
 from scipy.optimize import fmin_l_bfgs_b
 
 import functools
 
-# import argparse
-# import torch
-# from torch.utils import data
-# from data.generate2d import sample2d, energy2d
-# from tqdm import tqdm
-# from optim.adam import Adam
 
-from data.gas import GAS
-from data.bsds300 import BSDS300
-from data.hepmass import HEPMASS
-from data.miniboone import MINIBOONE
-from data.power import POWER
-from data.GQ_MS import GQ_MS
-
-NAF_PARAMS = {
-    'power': (414213, 828258),
-    'gas': (401741, 803226),
-    'hepmass': (9272743, 18544268),
-    'miniboone': (7487321, 14970256),
-    'bsds300': (36759591, 73510236)
-}
+def img_preprocessing(filename, args):
+    img_raw = tf.io.read_file(filename)
+    img = tf.image.decode_image(img_raw)
+    offset_width = 50
+    offset_height = 10
+    target_width = 660 - offset_width
+    target_height = 470 - offset_height
+    imgc = tf.image.crop_to_bounding_box(img, offset_height, offset_width, target_height, target_width)
+    # # args.img_size = 0.25;  args.preserve_aspect_ratio = True; args.rand_box = 0.1
+    imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32),tf.constant(args.img_size)), tf.int32)
+    imgcre = tf.image.resize(imgc, size=imresize_) / 255
+    rand_box_size = np.int(imgcre.shape[0]*args.rand_box)
+    rand_box = np.array([rand_box_size,rand_box_size,3])
+    # rand_box = np.append(tf.cast(tf.multiply(tf.cast(imgcre.shape[:2], tf.float32),tf.constant(0.1)), tf.int32).numpy(), [3])
+    return tf.reshape((tf.image.random_crop(imgcre, rand_box) - args.mean)/args.stdev, [-1])
 
 def load_dataset(args):
 
-    #convert datasets
-    # data = pd.read_csv(r'C:\Users\just\PycharmProjects\BNAF\data\gas\ethylene_methane.txt', delim_whitespace=True, header='infer')
-    # data.to_pickle('data/gas/ethylene_methane.pickle')
-
     tf.random.set_seed(args.manualSeed)
     np.random.seed(args.manualSeed)
+    random.seed(args.manualSeed)
 
-    if args.dataset == 'gas':
-        # dataset = GAS('data/gas/ethylene_CO.pickle')
-        dataset = GAS('data/gas/ethylene_methane.pickle') #actual loading file looked for methane????
-    elif args.dataset == 'bsds300':
-        dataset = BSDS300('data/BSDS300/BSDS300.hdf5')
-    elif args.dataset == 'hepmass':
-        dataset = HEPMASS('data/hepmass')
-    elif args.dataset == 'miniboone':
-        dataset = MINIBOONE('data/miniboone/data.npy')
-    elif args.dataset == 'power':
-        dataset = POWER('data/power/data.npy')
-    elif args.dataset == 'gq_ms_wheat':
-        dataset = GQ_MS('data/GQ_MS/wheat_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
-    elif args.dataset == 'gq_ms_soy':
-        dataset = GQ_MS('data/GQ_MS/soy_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
-    elif args.dataset == 'gq_ms_corn':
-        dataset = GQ_MS('data/GQ_MS/corn_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
-    elif args.dataset == 'gq_ms_canola':
-        dataset = GQ_MS('data/GQ_MS/canola_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
-    elif args.dataset == 'gq_ms_barley':
-        dataset = GQ_MS('data/GQ_MS/barley_perms.xlsx', normalize=args.normalize, logxfm = args.xfm, shuffledata=args.shuffle)
+    if args.dataset == 'wheat':
+        pass
+    elif args.dataset == 'soy':
+        pass
+    elif args.dataset == 'corn':
+        trainval = glob.glob('data/GQ_Images/Corn_2017/*.png')
+        l = len(trainval)  # number of elements you need
+        indices = random.sample(range(l), np.floor(args.valperc*l).astype(np.int))
+        val = [trainval[i] for i in indices]
+        train = np.delete(trainval, indices)
+        test = glob.glob('data/GQ_Images/Corn_2018/*.png')
+    elif args.dataset == 'canola':
+        pass
+    elif args.dataset == 'barley':
+        pass
     else:
         raise RuntimeError()
 
-    if not args.optimizer:
-        dataset_train = tf.data.Dataset.from_tensor_slices((dataset.trn.x))#.float().to(args.device)
-        # dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        dataset_train = dataset_train.shuffle(buffer_size=len(dataset.trn.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        # data_loader_train = tf.contrib.eager.Iterator(dataset_train)
-        ##data_loader_train.get_next()
+    img_preprocessing_ = functools.partial(img_preprocessing, args=args)
 
-        dataset_valid = tf.data.Dataset.from_tensor_slices((dataset.val.x))#.float().to(args.device)
-        # dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        dataset_valid = dataset_valid.shuffle(buffer_size=len(dataset.val.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        # data_loader_valid = tf.contrib.eager.Iterator(dataset_valid)
-        ##data_loader_valid.get_next()
+    dataset_train = tf.data.Dataset.from_tensor_slices(train)#.float().to(args.device)
+    dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-        dataset_test = tf.data.Dataset.from_tensor_slices((dataset.tst.x))#.float().to(args.device)
-        # dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).repeat().batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        dataset_test = dataset_test.shuffle(buffer_size=len(dataset.tst.x)).batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-        # data_loader_test = tf.contrib.eager.Iterator(dataset_test)
-        ##data_loader_test.get_next()
+    dataset_valid = tf.data.Dataset.from_tensor_slices(val)#.float().to(args.device)
+    dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-    else:
-        dataset_train = dataset.trn.x.astype(np.float64)
-        dataset_valid = dataset.val.x.astype(np.float64)
-        dataset_test = dataset.tst.x.astype(np.float64)
+    dataset_test = tf.data.Dataset.from_tensor_slices(test)#.float().to(args.device)
+    dataset_test = dataset_test.shuffle(buffer_size=len(test)).map(img_preprocessing_,num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-    args.n_dims = dataset.n_dims
-
-    # train_size = 3000
-    # dataset = np.arcsinh(5*np.random.RandomState(111).normal(0,1,size=[3*train_size,1]).astype(np.float32))
-    #
-    # dataset_train = tf.data.Dataset.from_tensor_slices((dataset[:train_size]))  # .float().to(args.device)
-    # dataset_train = dataset_train.batch(batch_size=args.batch_dim).prefetch( buffer_size=1)
-    #
-    # dataset_valid = tf.data.Dataset.from_tensor_slices((dataset[train_size:2*train_size]))#.float().to(args.device)
-    # dataset_valid = dataset_valid.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    #
-    # dataset_test = tf.data.Dataset.from_tensor_slices((dataset[train_size*2:]))#.float().to(args.device)
-    # dataset_test = dataset_test.batch(batch_size=args.batch_dim).prefetch(buffer_size=1)
-    #
-    # args.n_dims = 1
+    args.n_dims = img_preprocessing_(train[0]).shape[0]
 
     return dataset_train, dataset_valid, dataset_test
 
@@ -139,65 +100,6 @@ def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
 
     return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
 
-
-class Evaluator(object):
-
-    # def __init__(self, loss_train_fun, loss_val, global_step, early_stop_limit, var_list, var_shapes, var_locs, model):
-    def __init__(self, loss_train_fun, loss_val, global_step, scheduler, var_list, var_shapes, var_locs):
-        self.loss_train_fun = loss_train_fun #func_tools partial function with model, features, and labels already loaded
-        self.predLoss_val = loss_val #func_tools partial function with model, features, and labels already loaded
-        self.global_step = global_step #tf variable for tracking update steps from scipy optimizer step_callback
-        self.predLoss_val_prev, _, _= np.float64(loss_val()) + 10.0 #state variable of loss for early stopping
-        self.predLoss_val_cntr = 0 #counter to watch for early stopping
-        # self.early_stop_limit = early_stop_limit #number of cycles of increasing validation loss before stopping
-        self.scheduler = scheduler
-        self.var_shapes = var_shapes #list of shapes of each tf variable
-        self.var_list = var_list #list of trainable tf variables
-        self.var_locs = var_locs
-        self.loss_value, self.regL1, self.regL2 = self.loss_train_fun(x=np.float64(0))
-        self.grads_values = None
-
-    def loss(self, x):
-        # assert self.loss_value is None
-        self.loss_value, self.grad_values, self.regL1, self.regL2 = eval_loss_and_grads(x, self.loss_train_fun, self.var_list, self.var_shapes, self.var_locs) #eval_loss_and_grads
-        return self.loss_value
-
-    def grads(self, x):
-        # assert self.loss_value is not None
-        # grad_values = np.copy(self.grad_values)
-        # self.loss_value = None
-        # self.grad_values = None
-        return self.grad_values
-
-    def step_callback(self, x):
-        ## early stopping tracking
-        predLoss_val_temp, _, _ = np.float64(self.predLoss_val())
-        if predLoss_val_temp > self.predLoss_val_prev:
-            self.predLoss_val_cntr += 1
-        else:
-            self.predLoss_val_cntr = 0
-            self.predLoss_val_prev = predLoss_val_temp
-
-        #write tensorboard variables
-        tf.summary.scalar('loss_train', self.loss_value, step=self.global_step)
-        tf.summary.scalar('loss_val', predLoss_val_temp, step=self.global_step)
-        tf.summary.scalar('predLoss_val_cntr', self.predLoss_val_cntr, step=self.global_step)
-        tf.summary.scalar('regL1', self.regL1, step=self.global_step)
-        tf.summary.scalar('regL2', self.regL2, step=self.global_step)
-
-        # increment the global step counter
-        self.global_step = self.global_step + 1
-
-        return self.scheduler.on_epoch_end(epoch=self.global_step, monitor=predLoss_val_temp)
-
-        # #return true to scipy optimizer to stop optimization loop
-        # if self.predLoss_val_cntr > self.early_stop_limit:
-        #     print("stop")
-        #     sys.stdout.flush()
-        #     return True
-        # else:
-        #     return False
-
 def create_model(args, verbose=False):
 
     # random.seed(manualSeed)
@@ -206,9 +108,9 @@ def create_model(args, verbose=False):
     tf.random.set_seed(args.manualSeedw)
     np.random.seed(args.manualSeedw)
 
-    if args.optimizer: dtype_in = tf.float64
-    else: dtype_in = tf.float32
+    dtype_in = tf.float32
 
+    g_constraint = lambda x: tf.nn.relu(x) + 1e-6 ## for batch norm
     flows = []
     for f in range(args.flows):
         #build internal layers for a single flow
@@ -225,6 +127,20 @@ def create_model(args, verbose=False):
              res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
              )
         )
+        ## with batch norm example
+        # for _ in range(args.layers - 1):
+        #     layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
+        #                                args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
+        #     layers.append(CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum))
+        #     layers.append(Tanh(dtype_in=dtype_in))
+        #
+        # flows.append(
+        #     BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum), Tanh(dtype_in=dtype_in)] + \
+        #        layers + \
+        #        [CustomBatchnorm(scale=False, momentum=args.momentum), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+        #      res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
+        #      )
+        # )
 
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
@@ -270,46 +186,6 @@ def compute_log_p_x(model, x_mb):
     log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
-# def compute_kl(model, args):
-#     d_mb = tfp.distributions.Normal(tf.zeros((args.batch_dim, 2)),
-#                                       tf.ones((args.batch_dim, 2)))
-#     y_mb = d_mb.sample()
-#     x_mb, log_diag_j_mb = model(y_mb)
-#     log_p_y_mb = tf.reduce_sum(d_mb.log_prob(y_mb), axis=-1)
-#     return log_p_y_mb - log_diag_j_mb + energy2d(args.dataset, x_mb) + tf.reduce_sum(tf.nn.relu(x_mb.abs() - 6) ** 2, axis=-1)
-
-# def train_density2d(model, optimizer, scheduler, args):
-#     iterator = trange(args.steps, smoothing=0, dynamic_ncols=True)
-#     for epoch in iterator:
-#         x_mb = torch.from_numpy(sample2d(args.dataset, args.batch_dim)).float().to(args.device)
-#
-#         loss = - compute_log_p_x(model, x_mb).mean()
-#
-#         loss.backward()
-#         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_norm)
-#
-#         optimizer.step()
-#         optimizer.zero_grad()
-#
-#         scheduler.step(loss)
-#
-#         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
-#
-#
-# def train_energy2d(model, optimizer, scheduler, args):
-#     iterator = trange(args.steps, smoothing=0, dynamic_ncols=True)
-#     for epoch in iterator:
-#         loss = compute_kl(model, args).mean()
-#
-#         loss.backward()
-#         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.clip_norm)
-#
-#         optimizer.step()
-#         optimizer.zero_grad()
-#
-#         scheduler.step(loss)
-#
-#         iterator.set_postfix(loss='{:.2f}'.format(loss.data.cpu().numpy()), refresh=False)
 # @tf.function
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
     
@@ -388,10 +264,10 @@ def main():
 
 
     args = parser_()
-    args.device = '/cpu:0'  # '/gpu:0'
-    args.dataset = 'gq_ms_barley' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.device = '/gpu:0'  # '/gpu:0'
+    args.dataset = 'corn' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
-    args.batch_dim = 500
+    args.batch_dim = 50
     args.clip_norm = 0.1
     args.epochs = 5000
     args.patience = 10
@@ -409,11 +285,19 @@ def main():
     args.early_stopping = 30
     args.maxiter = 5000
     args.factr = 1E1
-    args.optimizer = None#"LBFGS" #or None
     args.regL2 = -1
     args.regL1 = -1
     args.manualSeed = 1
     args.manualSeedw = None
+    args.momentum = 0.9 ## batch norm momentum
+    args.prefetch_size = 1 #data pipeline prefetch buffer size
+    args.parallel = 8 #data pipeline parallel processes
+    args.img_size = 0.25; ## resize img between 0 and 1
+    args.preserve_aspect_ratio = True; ##when resizing
+    args.rand_box = 0.1 ##relative size of random box from image
+    args.mean = 0.41780022 #0
+    args.stdev = 0.21351579 #1
+    args.valperc = np.float32(0.3)
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
@@ -422,12 +306,8 @@ def main():
 
     print('Loading dataset..')
 
-    args.normalize = False
-    args.xfm = True
-    args.shuffle = True
     data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
 
-    
     if args.save and not args.load:
         print('Creating directory experiment..')
         os.mkdir(args.path)
@@ -453,62 +333,24 @@ def main():
 
     root = None
     args.start_epoch = 0
-    if not args.optimizer:
-        print('Creating optimizer..')
-        with tf.device(args.device):
-            optimizer = tf.optimizers.Adam()
-        root = tf.train.Checkpoint(optimizer=optimizer,
-                                   model=model,
-                                   optimizer_step=tf.compat.v1.train.get_global_step())
 
-        if args.load:
-            load_model(args, root, load_start_epoch=True)
+    print('Creating optimizer..')
+    with tf.device(args.device):
+        optimizer = tf.optimizers.Adam()
+    root = tf.train.Checkpoint(optimizer=optimizer,
+                               model=model,
+                               optimizer_step=tf.compat.v1.train.get_global_step())
+
+    if args.load:
+        load_model(args, root, load_start_epoch=True)
 
     print('Creating scheduler..')
     # use baseline to avoid saving early on
     scheduler = EarlyStopping(model=model, patience=args.early_stopping, args = args, root = root)
 
     with tf.device(args.device):
-        # print('Training..')
-        # if args.experiment == 'density2d':
-        #     train_density2d(model, optimizer, scheduler, args)
-        # elif args.experiment == 'energy2d':
-        #     train_energy2d(model, optimizer, scheduler, args)
-        # else:
+        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
 
-        ## SGD
-        if not args.optimizer:
-            train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
-        ## LBFGS
-        else:
-            loss_train = functools.partial(loss_func, x_mb=data_loader_train, model=model,
-                                           regL2=args.regL2, regL1=args.regL1)
-            loss_val = functools.partial(loss_func, x_mb=data_loader_valid, model=model,
-                                         regL2=np.float64(-1.0), regL1=np.float64(-1.0), x=np.float64(0))
-
-            with tf.device("CPU:0"):
-                with tf.GradientTape() as tape:
-                    prediction_loss, _, _ = loss_train(x=np.float64(0))
-                    var_list = tape.watched_variables()
-
-            x_init = []
-            for v in var_list:
-                x_init.extend(np.array(tf.reshape(v, [-1])))
-
-            var_shapes = []
-            var_locs = [0]
-            for v in var_list:
-                var_shapes.append(np.array(tf.shape(v)))
-                var_locs.append(np.prod(np.array(tf.shape(v))))
-            var_locs = np.cumsum(var_locs)
-
-            evaluator = Evaluator(loss_train, loss_val, 0, scheduler, var_list, var_shapes, var_locs)
-
-            x, min_val, info = fmin_l_bfgs_b(func=evaluator.loss, x0=np.float64(x_init),
-                                             fprime=evaluator.grads, maxiter=args.maxiter, factr=args.factr,
-                                             callback=evaluator.step_callback)
-
-            print(info)
 
 if __name__ == '__main__':
     main()
