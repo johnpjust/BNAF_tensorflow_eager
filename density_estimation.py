@@ -357,6 +357,6 @@ if __name__ == '__main__':
 
 ##"C:\Program Files\Git\bin\sh.exe" --login -i
 
-#### tensorboard --logdir=C:\Users\just\PycharmProjects\BNAF\tensorboard\checkpoint
+#### tensorboard --logdir=C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\tensorboard\checkpoint
 ## http://localhost:6006/
 
