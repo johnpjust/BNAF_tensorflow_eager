@@ -24,15 +24,15 @@ def img_preprocessing(filename, args):
     target_height = 470 - offset_height
     imgc = tf.image.crop_to_bounding_box(img, offset_height, offset_width, target_height, target_width)
     # # args.img_size = 0.25;  args.preserve_aspect_ratio = True; args.rand_box = 0.1
-    imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32),tf.constant(args.img_size)), tf.int32)
+    imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32), tf.constant(args.img_size)), tf.int32)
     imgcre = tf.image.resize(imgc, size=imresize_) / 255
-    rand_box_size = np.int(imgcre.shape[0]*args.rand_box)
-    rand_box = np.array([rand_box_size,rand_box_size,3])
+    rand_box_size = np.int(imgcre.shape[0] * args.rand_box)
+    rand_box = np.array([rand_box_size, rand_box_size, 3])
     # rand_box = np.append(tf.cast(tf.multiply(tf.cast(imgcre.shape[:2], tf.float32),tf.constant(0.1)), tf.int32).numpy(), [3])
-    return tf.reshape((tf.image.random_crop(imgcre, rand_box) - args.mean)/args.stdev, [-1])
+    return tf.reshape((tf.image.random_crop(imgcre, rand_box) - args.mean) / args.stdev, [-1])
+
 
 def load_dataset(args):
-
     tf.random.set_seed(args.manualSeed)
     np.random.seed(args.manualSeed)
     random.seed(args.manualSeed)
@@ -44,7 +44,7 @@ def load_dataset(args):
     elif args.dataset == 'corn':
         trainval = glob.glob('data/GQ_Images/Corn_2017/*.png')
         l = len(trainval)  # number of elements you need
-        indices = random.sample(range(l), np.floor(args.valperc*l).astype(np.int))
+        indices = random.sample(range(l), np.floor(args.valperc * l).astype(np.int))
         val = [trainval[i] for i in indices]
         train = np.delete(trainval, indices)
         test = glob.glob('data/GQ_Images/Corn_2018/*.png')
@@ -57,22 +57,30 @@ def load_dataset(args):
 
     img_preprocessing_ = functools.partial(img_preprocessing, args=args)
 
-    dataset_train = tf.data.Dataset.from_tensor_slices(train)#.float().to(args.device)
-    dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_train = tf.data.Dataset.from_tensor_slices(train)  # .float().to(args.device)
+    dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_,
+                                                                      num_parallel_calls=args.parallel).batch(
+        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-    dataset_valid = tf.data.Dataset.from_tensor_slices(val)#.float().to(args.device)
-    dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_valid = tf.data.Dataset.from_tensor_slices(val)  # .float().to(args.device)
+    dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_,
+                                                                    num_parallel_calls=args.parallel).batch(
+        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-    dataset_test = tf.data.Dataset.from_tensor_slices(test)#.float().to(args.device)
-    dataset_test = dataset_test.shuffle(buffer_size=len(test)).map(img_preprocessing_,num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_test = tf.data.Dataset.from_tensor_slices(test)  # .float().to(args.device)
+    dataset_test = dataset_test.shuffle(buffer_size=len(test)).map(img_preprocessing_,
+                                                                   num_parallel_calls=args.parallel).batch(
+        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
     args.n_dims = img_preprocessing_(train[0]).shape[0]
 
     return dataset_train, dataset_valid, dataset_test
 
+
 def smooth_abs_tf(x):
-    #asdjksfdajk
+    # asdjksfdajk
     return tf.square(x) / tf.sqrt(tf.square(x) + .01 ** 2)
+
 
 def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
     ## x: updated variables from scipy optimizer
@@ -83,7 +91,7 @@ def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
     ## update variables
     grad_list = []
     for i in range(len(var_list)):
-        var_list[i].assign(np.reshape(x[var_locs[i]:(var_locs[i+1])], var_shapes[i]))
+        var_list[i].assign(np.reshape(x[var_locs[i]:(var_locs[i + 1])], var_shapes[i]))
 
     # ## make the predictions pass through the origin by setting final layer bias
     # var_list[-1].assign((var_list[-1]-model(np.array([[0]])))[0])
@@ -100,8 +108,8 @@ def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
 
     return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
 
-def create_model(args, verbose=False):
 
+def create_model(args, verbose=False):
     # random.seed(manualSeed)
     # torch.manual_seed(manualSeed)
 
@@ -110,10 +118,10 @@ def create_model(args, verbose=False):
 
     dtype_in = tf.float32
 
-    g_constraint = lambda x: tf.nn.relu(x) + 1e-6 ## for batch norm
+    g_constraint = lambda x: tf.nn.relu(x) + 1e-6  ## for batch norm
     flows = []
     for f in range(args.flows):
-        #build internal layers for a single flow
+        # build internal layers for a single flow
         layers = []
         for _ in range(args.layers - 1):
             layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
@@ -121,11 +129,12 @@ def create_model(args, verbose=False):
             layers.append(Tanh(dtype_in=dtype_in))
 
         flows.append(
-            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
-               layers + \
-               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
-             res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
-             )
+            BNAF(layers=[MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in),
+                         Tanh(dtype_in=dtype_in)] + \
+                        layers + \
+                        [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+                 res=args.residual if f < args.flows - 1 else None, dtype_in=dtype_in
+                 )
         )
         ## with batch norm example
         # for _ in range(args.layers - 1):
@@ -145,10 +154,10 @@ def create_model(args, verbose=False):
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
 
-        model = Sequential(flows)#, dtype_in=dtype_in)
+        model = Sequential(flows)  # , dtype_in=dtype_in)
         # params = np.sum(np.sum(p.numpy() != 0) if len(p.numpy().shape) > 1 else p.numpy().shape
         #              for p in model.trainable_variables)[0]
-    
+
     # if verbose:
     #     print('{}'.format(model))
     #     print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params,
@@ -158,8 +167,9 @@ def create_model(args, verbose=False):
     #     with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
     #         print('Parameters={}, NAF/BNAF={:.2f}/{:.2f}, n_dims={}'.format(params,
     #             NAF_PARAMS[args.dataset][0] / params, NAF_PARAMS[args.dataset][1] / params, args.n_dims), file=f)
-    
+
     return model
+
 
 def load_model(args, root, load_start_epoch=False):
     # def f():
@@ -170,34 +180,37 @@ def load_model(args, root, load_start_epoch=False):
     #     args.start_epoch = tf.train.get_global_step().numpy()
     # return f
 
+
 @tf.function
-def loss_func(model, x_mb, x, regL2 = np.float64(-1.0), regL1 = np.float64(-1.0)):
+def loss_func(model, x_mb, x, regL2=np.float64(-1.0), regL1=np.float64(-1.0)):
     loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
     regL2_penalty = np.float64(0)
     regL1_penalty = np.float64(0)
     if regL2 >= 0:  regL2_penalty = tf.reduce_mean(tf.square(x))
     if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
-    return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
+    return loss + regL2_penalty + regL2_penalty, regL2_penalty, regL1_penalty
+
 
 # @tf.function
 def compute_log_p_x(model, x_mb):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
     y_mb, log_diag_j_mb = model(x_mb)
-    log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
+    log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb),
+                               axis=-1)  # .sum(-1)
     return log_p_y_mb + log_diag_j_mb
+
 
 # @tf.function
 def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
-    
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
 
         # t = tqdm(data_loader_train, smoothing=0, ncols=80)
         train_loss = []
-        
+
         for x_mb in data_loader_train:
             with tf.GradientTape() as tape:
-                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb)) #negative -> minimize to maximize liklihood
+                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))  # negative -> minimize to maximize liklihood
 
             grads = tape.gradient(loss, model.trainable_variables)
             grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
@@ -212,16 +225,15 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
         #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
 
-
-        stop = scheduler.on_epoch_end(epoch = epoch, monitor=validation_loss)
+        stop = scheduler.on_epoch_end(epoch=epoch, monitor=validation_loss)
 
         if args.tensorboard:
             # with tf.contrib.summary.always_record_summaries():
-                tf.summary.scalar('loss/validation', validation_loss,tf.compat.v1.train.get_global_step())
-                tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
-                # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
-                # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
-                # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
+            tf.summary.scalar('loss/validation', validation_loss, tf.compat.v1.train.get_global_step())
+            tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
+            # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
+            # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
+            # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
 
         if stop:
             break
@@ -232,15 +244,17 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
     print('###### Stop training after {} epochs!'.format(epoch + 1))
     print('Validation loss: {:4.3f}'.format(validation_loss))
     print('Test loss:       {:4.3f}'.format(test_loss))
-    
+
     if args.save:
         with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
             print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
             print('Validation loss: {:4.3f}'.format(validation_loss), file=f)
             print('Test loss:       {:4.3f}'.format(test_loss), file=f)
 
+
 class parser_:
     pass
+
 
 def main():
     # config = tf.compat.v1.ConfigProto()
@@ -264,7 +278,7 @@ def main():
 
     args = parser_()
     args.device = '/gpu:0'  # '/gpu:0'
-    args.dataset = 'corn' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'corn'  # 'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 50
     args.clip_norm = 0.1
@@ -278,7 +292,7 @@ def main():
     args.hidden_dim = 12
     args.residual = 'gated'
     args.expname = ''
-    args.load = ''#r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
+    args.load = ''  # r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 15
@@ -288,19 +302,20 @@ def main():
     args.regL1 = -1
     args.manualSeed = None
     args.manualSeedw = None
-    args.momentum = 0.9 ## batch norm momentum
-    args.prefetch_size = 1 #data pipeline prefetch buffer size
-    args.parallel = 16 #data pipeline parallel processes
-    args.img_size = 0.5; ## resize img between 0 and 1
-    args.preserve_aspect_ratio = True; ##when resizing
-    args.rand_box = 0.05 ##relative size of random box from image
-    args.mean = 0.41780022 #0
-    args.stdev = 0.21351579 #1
+    args.momentum = 0.9  ## batch norm momentum
+    args.prefetch_size = 1  # data pipeline prefetch buffer size
+    args.parallel = 16  # data pipeline parallel processes
+    args.img_size = 0.5;  ## resize img between 0 and 1
+    args.preserve_aspect_ratio = True;  ##when resizing
+    args.rand_box = 0.05  ##relative size of random box from image
+    args.mean = 0.41780022  # 0
+    args.stdev = 0.21351579  # 1
     args.valperc = np.float32(0.3)
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}_resize{}_boxsize{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
-        args.dataset, args.layers, args.hidden_dim, args.flows, args.img_size, args.rand_box, '_' + args.residual if args.residual else '',
+        args.dataset, args.layers, args.hidden_dim, args.flows, args.img_size, args.rand_box,
+        '_' + args.residual if args.residual else '',
         str(datetime.datetime.now())[:-7].replace(' ', '-').replace(':', '-')))
 
     print('Loading dataset..')
@@ -312,7 +327,7 @@ def main():
         os.mkdir(args.path)
         with open(os.path.join(args.path, 'args.json'), 'w') as f:
             json.dump(str(args.__dict__), f, indent=4, sort_keys=True)
-    
+
     print('Creating BNAF model..')
     with tf.device(args.device):
         model = create_model(args, verbose=True)
@@ -345,7 +360,7 @@ def main():
 
     print('Creating scheduler..')
     # use baseline to avoid saving early on
-    scheduler = EarlyStopping(model=model, patience=args.early_stopping, args = args, root = root)
+    scheduler = EarlyStopping(model=model, patience=args.early_stopping, args=args, root=root)
 
     with tf.device(args.device):
         train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
