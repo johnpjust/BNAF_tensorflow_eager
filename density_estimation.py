@@ -25,11 +25,13 @@ def img_preprocessing(filename, args):
     imgc = tf.image.crop_to_bounding_box(img, offset_height, offset_width, target_height, target_width)
     # # args.img_size = 0.25;  args.preserve_aspect_ratio = True; args.rand_box = 0.1
     imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32),tf.constant(args.img_size)), tf.int32)
-    imgcre = tf.image.resize(imgc, size=imresize_) / 255
+    imgcre = tf.image.resize(imgc, size=imresize_)
     rand_box_size = np.int(imgcre.shape[0]*args.rand_box)
     rand_box = np.array([rand_box_size,rand_box_size,3])
     # rand_box = np.append(tf.cast(tf.multiply(tf.cast(imgcre.shape[:2], tf.float32),tf.constant(0.1)), tf.int32).numpy(), [3])
-    return tf.reshape((tf.image.random_crop(imgcre, rand_box) - args.mean)/args.stdev, [-1])
+    rand_crop = tf.image.random_crop(imgcre, rand_box)
+    rand_crop = tf.minimum(tf.nn.relu(rand_crop + tf.random.uniform(rand_crop.shape, -0.5, 0.5)), 255) ## add noise
+    return tf.reshape((rand_crop/255 - args.mean)/args.stdev, [-1])
 
 def load_dataset(args):
 
@@ -42,12 +44,16 @@ def load_dataset(args):
     elif args.dataset == 'soy':
         pass
     elif args.dataset == 'corn':
-        trainval = glob.glob('data/GQ_Images/Corn_2017/*.png')
-        l = len(trainval)  # number of elements you need
-        indices = random.sample(range(l), np.floor(args.valperc*l).astype(np.int))
-        val = [trainval[i] for i in indices]
-        train = np.delete(trainval, indices)
-        test = glob.glob('data/GQ_Images/Corn_2018/*.png')
+        trainval = glob.glob('data/GQ_Images/Corn_2017_2018/*.png')
+        # l = len(trainval)  # number of elements you need
+        # indices = random.sample(range(l), np.floor(args.valperc*l).astype(np.int))
+        # val = [trainval[i] for i in indices]
+        # train = np.delete(trainval, indices)
+        # test = val
+        train = trainval
+        val = trainval
+        test = trainval
+
     elif args.dataset == 'canola':
         pass
     elif args.dataset == 'barley':
@@ -69,36 +75,6 @@ def load_dataset(args):
     args.n_dims = img_preprocessing_(train[0]).shape[0]
 
     return dataset_train, dataset_valid, dataset_test
-
-def smooth_abs_tf(x):
-    #asdjksfdajk
-    return tf.square(x) / tf.sqrt(tf.square(x) + .01 ** 2)
-
-def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
-    ## x: updated variables from scipy optimizer
-    ## var_list: list of trainable variables
-    ## var_sapes: the shape of each variable to use for updating variables with optimizer values
-    ## var_locs:  slicing indecies to use on x prior to reshaping
-
-    ## update variables
-    grad_list = []
-    for i in range(len(var_list)):
-        var_list[i].assign(np.reshape(x[var_locs[i]:(var_locs[i+1])], var_shapes[i]))
-
-    # ## make the predictions pass through the origin by setting final layer bias
-    # var_list[-1].assign((var_list[-1]-model(np.array([[0]])))[0])
-
-    ## calculate new gradient
-    with tf.device("CPU:0"):
-        with tf.GradientTape() as tape:
-            prediction_loss, regL1_penalty, regL2_penalty = loss_train(x=x)
-
-        for p in tape.gradient(prediction_loss, var_list):
-            grad_list.extend(np.array(tf.reshape(p, [-1])))
-
-    grad_list = [v if v is not None else 0 for v in grad_list]
-
-    return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
 
 def create_model(args, verbose=False):
 
@@ -169,15 +145,6 @@ def load_model(args, root, load_start_epoch=False):
     # if load_start_epoch:
     #     args.start_epoch = tf.train.get_global_step().numpy()
     # return f
-
-@tf.function
-def loss_func(model, x_mb, x, regL2 = np.float64(-1.0), regL1 = np.float64(-1.0)):
-    loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
-    regL2_penalty = np.float64(0)
-    regL1_penalty = np.float64(0)
-    if regL2 >= 0:  regL2_penalty = tf.reduce_mean(tf.square(x))
-    if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
-    return loss + regL2_penalty +regL2_penalty, regL2_penalty, regL1_penalty
 
 # @tf.function
 def compute_log_p_x(model, x_mb):
@@ -278,7 +245,7 @@ def main():
     args.hidden_dim = 12
     args.residual = 'gated'
     args.expname = ''
-    args.load = ''#r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
+    args.load = ''#r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\corn_layers1_h12_flows6_resize0.25_boxsize0.1_gated_2019-08-24-11-07-09'
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 15
@@ -291,12 +258,12 @@ def main():
     args.momentum = 0.9 ## batch norm momentum
     args.prefetch_size = 1 #data pipeline prefetch buffer size
     args.parallel = 16 #data pipeline parallel processes
-    args.img_size = 0.5; ## resize img between 0 and 1
+    args.img_size = 0.25; ## resize img between 0 and 1
     args.preserve_aspect_ratio = True; ##when resizing
-    args.rand_box = 0.05 ##relative size of random box from image
+    args.rand_box = 0.1 ##relative size of random box from image
     args.mean = 0.41780022 #0
     args.stdev = 0.21351579 #1
-    args.valperc = np.float32(0.3)
+    args.valperc = np.float32(0.2)
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}_resize{}_boxsize{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),

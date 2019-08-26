@@ -9,13 +9,38 @@ from bnaf import *
 from optim.lr_scheduler import *
 import glob
 import random
+import matplotlib.pyplot as plt
 
 from scipy.optimize import fmin_l_bfgs_b
 
 import functools
 
+def img_heatmap(compute_img_log_p_x, filename, args):
+    imgcre = get_image(filename, args)
+    # imgcre = np.maximum(imgcre + np.random.uniform(-0.5, 0.5, imgcre.shape), 0)
+    rand_box_size = np.int(imgcre.shape[0] * args.rand_box)
+    rand_box = np.array([rand_box_size, rand_box_size, 3])
+    # rand_box = np.append(tf.cast(tf.multiply(tf.cast(imgcre.shape[:2], tf.float32),tf.constant(0.1)), tf.int32).numpy(), [3])
+    rows = imgcre.shape[0]-rand_box[0]
+    cols = imgcre.shape[1] - rand_box[1]
+    heatmap = np.zeros((np.int(rows/args.spacing), np.int(cols/args.spacing)))
+    im_breakup_array = np.zeros((np.int(cols/args.spacing),rand_box_size*rand_box_size*3), dtype=np.float32)
+    with tf.device(args.device):
+        for i in range(np.int(rows/args.spacing)*args.spacing):
+            if not i%args.spacing:
+                for j in range(np.int(cols/args.spacing)*args.spacing):
+                    if not j%args.spacing:
+                        im_breakup_array[np.int(j/args.spacing),:] = tf.reshape((tf.image.crop_to_bounding_box(imgcre, i, j, rand_box_size, rand_box_size)/255 - args.mean) / args.stdev, [-1]).numpy()
+                heatmap[np.int(i/args.spacing), :] = compute_img_log_p_x(x_mb=im_breakup_array).numpy()
+    # heatmap = np.zeros((rows, cols))
+    # im_breakup_array = np.zeros((cols, rand_box_size*rand_box_size*3), dtype=np.float32)
+    # for i in range(rows):
+    #     for j in range(cols):
+    #         im_breakup_array[j,:] = tf.reshape((tf.image.crop_to_bounding_box(imgcre, i, j, rand_box_size, rand_box_size) - args.mean) / args.stdev, [-1]).numpy()
+    #     heatmap[i, :] = compute_img_log_p_x(x_mb=im_breakup_array).numpy()
+    return heatmap
 
-def img_preprocessing(filename, args):
+def get_image(filename, args):
     img_raw = tf.io.read_file(filename)
     img = tf.image.decode_image(img_raw)
     offset_width = 50
@@ -25,88 +50,21 @@ def img_preprocessing(filename, args):
     imgc = tf.image.crop_to_bounding_box(img, offset_height, offset_width, target_height, target_width)
     # # args.img_size = 0.25;  args.preserve_aspect_ratio = True; args.rand_box = 0.1
     imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32), tf.constant(args.img_size)), tf.int32)
+    return tf.image.resize(imgc, size=imresize_)
+
+def get_dims(filename, args):
+    img_raw = tf.io.read_file(filename)
+    img = tf.image.decode_image(img_raw)
+    offset_width = 50
+    offset_height = 10
+    target_width = 660 - offset_width
+    target_height = 470 - offset_height
+    imgc = tf.image.crop_to_bounding_box(img, offset_height, offset_width, target_height, target_width)
+    imresize_ = tf.cast(tf.multiply(tf.cast(imgc.shape[:2], tf.float32), tf.constant(args.img_size)), tf.int32)
     imgcre = tf.image.resize(imgc, size=imresize_) / 255
     rand_box_size = np.int(imgcre.shape[0] * args.rand_box)
     rand_box = np.array([rand_box_size, rand_box_size, 3])
-    # rand_box = np.append(tf.cast(tf.multiply(tf.cast(imgcre.shape[:2], tf.float32),tf.constant(0.1)), tf.int32).numpy(), [3])
-    return tf.reshape((tf.image.random_crop(imgcre, rand_box) - args.mean) / args.stdev, [-1])
-
-
-def load_dataset(args):
-    tf.random.set_seed(args.manualSeed)
-    np.random.seed(args.manualSeed)
-    random.seed(args.manualSeed)
-
-    if args.dataset == 'wheat':
-        pass
-    elif args.dataset == 'soy':
-        pass
-    elif args.dataset == 'corn':
-        trainval = glob.glob('data/GQ_Images/Corn_2017/*.png')
-        l = len(trainval)  # number of elements you need
-        indices = random.sample(range(l), np.floor(args.valperc * l).astype(np.int))
-        val = [trainval[i] for i in indices]
-        train = np.delete(trainval, indices)
-        test = glob.glob('data/GQ_Images/Corn_2018/*.png')
-    elif args.dataset == 'canola':
-        pass
-    elif args.dataset == 'barley':
-        pass
-    else:
-        raise RuntimeError()
-
-    img_preprocessing_ = functools.partial(img_preprocessing, args=args)
-
-    dataset_train = tf.data.Dataset.from_tensor_slices(train)  # .float().to(args.device)
-    dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_,
-                                                                      num_parallel_calls=args.parallel).batch(
-        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
-
-    dataset_valid = tf.data.Dataset.from_tensor_slices(val)  # .float().to(args.device)
-    dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_,
-                                                                    num_parallel_calls=args.parallel).batch(
-        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
-
-    dataset_test = tf.data.Dataset.from_tensor_slices(test)  # .float().to(args.device)
-    dataset_test = dataset_test.shuffle(buffer_size=len(test)).map(img_preprocessing_,
-                                                                   num_parallel_calls=args.parallel).batch(
-        batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
-
-    args.n_dims = img_preprocessing_(train[0]).shape[0]
-
-    return dataset_train, dataset_valid, dataset_test
-
-
-def smooth_abs_tf(x):
-    # asdjksfdajk
-    return tf.square(x) / tf.sqrt(tf.square(x) + .01 ** 2)
-
-
-def eval_loss_and_grads(x, loss_train, var_list, var_shapes, var_locs):
-    ## x: updated variables from scipy optimizer
-    ## var_list: list of trainable variables
-    ## var_sapes: the shape of each variable to use for updating variables with optimizer values
-    ## var_locs:  slicing indecies to use on x prior to reshaping
-
-    ## update variables
-    grad_list = []
-    for i in range(len(var_list)):
-        var_list[i].assign(np.reshape(x[var_locs[i]:(var_locs[i + 1])], var_shapes[i]))
-
-    # ## make the predictions pass through the origin by setting final layer bias
-    # var_list[-1].assign((var_list[-1]-model(np.array([[0]])))[0])
-
-    ## calculate new gradient
-    with tf.device("CPU:0"):
-        with tf.GradientTape() as tape:
-            prediction_loss, regL1_penalty, regL2_penalty = loss_train(x=x)
-
-        for p in tape.gradient(prediction_loss, var_list):
-            grad_list.extend(np.array(tf.reshape(p, [-1])))
-
-    grad_list = [v if v is not None else 0 for v in grad_list]
-
-    return np.float64(prediction_loss), np.float64(grad_list), np.float64(regL1_penalty), np.float64(regL2_penalty)
+    args.n_dims = np.prod(rand_box)
 
 
 def create_model(args, verbose=False):
@@ -180,17 +138,6 @@ def load_model(args, root, load_start_epoch=False):
     #     args.start_epoch = tf.train.get_global_step().numpy()
     # return f
 
-
-@tf.function
-def loss_func(model, x_mb, x, regL2=np.float64(-1.0), regL1=np.float64(-1.0)):
-    loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))
-    regL2_penalty = np.float64(0)
-    regL1_penalty = np.float64(0)
-    if regL2 >= 0:  regL2_penalty = tf.reduce_mean(tf.square(x))
-    if regL1 >= 0:  regL1_penalty = tf.reduce_mean(smooth_abs_tf(x))
-    return loss + regL2_penalty + regL2_penalty, regL2_penalty, regL1_penalty
-
-
 # @tf.function
 def compute_log_p_x(model, x_mb):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
@@ -200,61 +147,8 @@ def compute_log_p_x(model, x_mb):
     return log_p_y_mb + log_diag_j_mb
 
 
-# @tf.function
-def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
-    epoch = args.start_epoch
-    for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
-
-        # t = tqdm(data_loader_train, smoothing=0, ncols=80)
-        train_loss = []
-
-        for x_mb in data_loader_train:
-            with tf.GradientTape() as tape:
-                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb))  # negative -> minimize to maximize liklihood
-
-            grads = tape.gradient(loss, model.trainable_variables)
-            grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
-            train_loss.append(loss)
-
-            tf.compat.v1.train.get_global_step().assign_add(1)
-        train_loss = np.mean(train_loss)
-        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
-
-        # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
-        #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
-
-        stop = scheduler.on_epoch_end(epoch=epoch, monitor=validation_loss)
-
-        if args.tensorboard:
-            # with tf.contrib.summary.always_record_summaries():
-            tf.summary.scalar('loss/validation', validation_loss, tf.compat.v1.train.get_global_step())
-            tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
-            # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
-            # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
-            # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
-
-        if stop:
-            break
-
-    validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
-    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_test])
-
-    print('###### Stop training after {} epochs!'.format(epoch + 1))
-    print('Validation loss: {:4.3f}'.format(validation_loss))
-    print('Test loss:       {:4.3f}'.format(test_loss))
-
-    if args.save:
-        with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
-            print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
-            print('Validation loss: {:4.3f}'.format(validation_loss), file=f)
-            print('Test loss:       {:4.3f}'.format(test_loss), file=f)
-
-
 class parser_:
     pass
-
 
 def main():
     # config = tf.compat.v1.ConfigProto()
@@ -292,7 +186,7 @@ def main():
     args.hidden_dim = 12
     args.residual = 'gated'
     args.expname = ''
-    args.load = ''  # r'C:\Users\just\PycharmProjects\BNAF\checkpoint\gq_ms_wheat_layers1_h3_flows1_gated_2019-07-28-22-39-13'
+    args.load = r'C:\Users\justjo\PycharmProjects\BNAF_tensorflow_eager\checkpoint\corn_layers1_h12_flows6_resize0.25_boxsize0.1_gated_2019-08-25-22-18-30'
     args.save = True
     args.tensorboard = 'tensorboard'
     args.early_stopping = 15
@@ -303,24 +197,26 @@ def main():
     args.manualSeed = None
     args.manualSeedw = None
     args.momentum = 0.9  ## batch norm momentum
-    args.prefetch_size = 1  # data pipeline prefetch buffer size
+    args.prefetch_size = 10  # data pipeline prefetch buffer size
     args.parallel = 16  # data pipeline parallel processes
-    args.img_size = 0.5;  ## resize img between 0 and 1
+    args.img_size = 0.25;  ## resize img between 0 and 1
     args.preserve_aspect_ratio = True;  ##when resizing
-    args.rand_box = 0.05  ##relative size of random box from image
+    args.rand_box = 0.1  ##relative size of random box from image
     args.mean = 0.41780022  # 0
     args.stdev = 0.21351579  # 1
-    args.valperc = np.float32(0.3)
+    args.spacing = 1
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}_resize{}_boxsize{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
-        args.dataset, args.layers, args.hidden_dim, args.flows, args.img_size, args.rand_box,
-        '_' + args.residual if args.residual else '',
+        args.dataset, args.layers, args.hidden_dim, args.flows, args.img_size, args.rand_box, '_' + args.residual if args.residual else '',
         str(datetime.datetime.now())[:-7].replace(' ', '-').replace(':', '-')))
 
     print('Loading dataset..')
 
-    data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
+    fnames = glob.glob('data/GQ_Images/*.png')
+
+    ##set n_dims
+    get_dims(fnames[0], args)
 
     if args.save and not args.load:
         print('Creating directory experiment..')
@@ -362,9 +258,28 @@ def main():
     # use baseline to avoid saving early on
     scheduler = EarlyStopping(model=model, patience=args.early_stopping, args=args, root=root)
 
-    with tf.device(args.device):
-        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+    heat_map_func = functools.partial(compute_log_p_x, model=model)
 
+    heat_map = []
+    fnames = glob.glob('data/GQ_Images/test_images_broken/*.png')
+    fnames = glob.glob('data/GQ_Images/*.png')
+
+    heat_map.extend(img_heatmap(heat_map_func, f, args) for f in fnames)
+    heatmap_ = np.array(heat_map)
+
+    ## johnsonsu xfrm for density fit (5.4155884341570175, 4.78009012658631, 622.0617883438022, 214.5187927541507)
+    # dist = [5.4155884341570175, 4.78009012658631, 622.0617883438022, 214.5187927541507]
+    dist = (8.144493590964167, 6.017963993607797, 740.3910154966748, 219.38576508100834)
+    heatmap_ = (np.arcsinh((heatmap_ - dist[-2]) / dist[-1]) * dist[1] + dist[0])
+
+
+
+    heatmap_ = tf.sigmoid((np.arcsinh((heatmap_ - dist[-2]) / dist[-1]) * dist[1] + dist[0])).numpy()
+    ##call function directly first
+    i = 0
+    plt.figure();plt.imshow(get_image(fnames[i], args)/255)
+    plt.figure()
+    plt.imshow(heatmap_[i], cmap='hot', interpolation='nearest', vmin=0, vmax=1, alpha=1)
 
 if __name__ == '__main__':
     main()
