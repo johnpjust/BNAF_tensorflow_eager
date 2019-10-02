@@ -1,17 +1,4 @@
-# BNAF
-Tensorflow Eager Execution implementation of Block Neural Autoregressive Flow based on:
-> De Cao Nicola, Titov Ivan and Aziz Wilker, [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
+# Granular Learning in the Presence of Highly Contaminated Data
+<img src="BNAF_tensorflow_eager/readme_images/UMAP_grains.png"> <!-- width="400" hspace="20"> --> 
 
-## Requirements
-* **``python>=3.6``** (it will probably work on older versions but I have not tested on them)
 
-Optional for visualization and plotting: ``numpy``, ``matplotlib``
-
-## Structure
-* This has been adapted from the original to work with Tensorflow Eager Execution.
-
-## Usage
------
-
-## License
-MIT_
