@@ -9,11 +9,19 @@ from bnaf import *
 from optim.lr_scheduler import *
 import glob
 import random
+import struct
 
 from scipy.optimize import fmin_l_bfgs_b
 
 import functools
 
+tf.random.set_seed(None)
+
+def read_idx(filename):
+    with open(filename, 'rb') as f:
+        zero, data_type, dims = struct.unpack('>HBB', f.read(4))
+        shape = tuple(struct.unpack('>I', f.read(4))[0] for d in range(dims))
+        return np.fromstring(f.read(), dtype=np.uint8).reshape(shape)
 
 def img_preprocessing(filename, args):
     img_raw = tf.io.read_file(filename)
@@ -32,6 +40,10 @@ def img_preprocessing(filename, args):
     rand_crop = tf.image.random_crop(imgcre, rand_box)
     rand_crop = tf.minimum(tf.nn.relu(rand_crop + tf.random.uniform(rand_crop.shape, -0.5, 0.5)), 255) ## add noise
     return tf.reshape((rand_crop/255 - args.mean)/args.stdev, [-1])
+
+
+def dequantize(img):
+    return img + tf.random.uniform(img.shape, -0.5/128., 0.5/128.)
 
 def load_dataset(args):
 
@@ -54,6 +66,20 @@ def load_dataset(args):
         val = trainval
         test = trainval
 
+    elif args.dataset == 'MNIST':
+        train = read_idx(r'C:\Users\justjo\Downloads\public_datasets/FasionMNIST/train-images-idx3-ubyte').reshape((-1, train.shape[1])) / 128. - 1.
+        train_idx = np.arange(train.shape[0])
+        rng.shuffle(train_idx)
+        val = train_data[train_idx[-int(args.p_val * train.shape[0]):]]
+        train = train_data[train_idx[:-int(args.p_val * train.shape[0])]]
+        test = read_idx(r'C:\Users\justjo\Downloads\public_datasets/FasionMNIST/t10k-images-idx3-ubyte')
+        test = test.reshape((test.shape[0], -1)) / 128. - 1.
+
+        # _, _, vh = scipy.linalg.svd(data, full_matrices=False)
+        # data = np.matmul(data, vh.T)
+        # val = np.matmul(val, vh.T)
+        # test = np.matmul(test, vh.T)
+
     elif args.dataset == 'canola':
         pass
     elif args.dataset == 'barley':
@@ -61,7 +87,8 @@ def load_dataset(args):
     else:
         raise RuntimeError()
 
-    img_preprocessing_ = functools.partial(img_preprocessing, args=args)
+    # img_preprocessing_ = functools.partial(img_preprocessing, args=args)
+    img_preprocessing_ = functools.partial(dequantize)
 
     dataset_train = tf.data.Dataset.from_tensor_slices(train)#.float().to(args.device)
     dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
@@ -70,7 +97,7 @@ def load_dataset(args):
     dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
     dataset_test = tf.data.Dataset.from_tensor_slices(test)#.float().to(args.device)
-    dataset_test = dataset_test.shuffle(buffer_size=len(test)).map(img_preprocessing_,num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_test = dataset_test.map(img_preprocessing_,num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
     args.n_dims = img_preprocessing_(train[0]).shape[0]
 
@@ -173,6 +200,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             train_loss.append(loss)
 
             tf.compat.v1.train.get_global_step().assign_add(1)
+
         train_loss = np.mean(train_loss)
         validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
 
@@ -231,7 +259,7 @@ def main():
 
     args = parser_()
     args.device = '/gpu:0'  # '/gpu:0'
-    args.dataset = 'corn' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'fmnist' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
     args.batch_dim = 50
     args.clip_norm = 0.1
@@ -264,6 +292,7 @@ def main():
     args.mean = 0.41780022 #0
     args.stdev = 0.21351579 #1
     args.valperc = np.float32(0.2)
+    args.p_val = 0.2
 
     args.path = os.path.join('checkpoint', '{}{}_layers{}_h{}_flows{}_resize{}_boxsize{}{}_{}'.format(
         args.expname + ('_' if args.expname != '' else ''),
