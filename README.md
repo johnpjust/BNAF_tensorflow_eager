@@ -1,17 +1,8 @@
-# BNAF
-Tensorflow Eager Execution implementation of Block Neural Autoregressive Flow based on:
-> De Cao Nicola, Titov Ivan and Aziz Wilker, [Block Neural Autoregressive Flow](http://arxiv.org/abs/1904.04676) (2019)
+# Granular Learning in the Presence of Highly Contaminated Data
 
-## Requirements
-* **``python>=3.6``** (it will probably work on older versions but I have not tested on them)
+With the goal of learning quality levels via unsupervised anomaly detectors, we first are interested in finding if there is much overlap in the train and test datasets.  The log likelihood objective isn't always strong enough to encourage generative models to assign low probability to OoD data, so we check with a more reliable method -- optimization.  Using UMAP, we can see that these datasets fully overlap below.  Try this with other datasets such as MNIST vs Fashion MNIST or CIFAR10 vs SVHN and you'll easily tell them apart.
 
-Optional for visualization and plotting: ``numpy``, ``matplotlib``
+"0" = Train
+"1" = Test
 
-## Structure
-* This has been adapted from the original to work with Tensorflow Eager Execution.
-
-## Usage
------
-
-## License
-MIT_
+<img src="./readme_images/UMAP_grains.png"> <!-- width="400" hspace="20"> --> 
