@@ -67,13 +67,22 @@ def load_dataset(args):
         test = trainval
 
     elif args.dataset == 'MNIST':
-        train = read_idx(r'C:\Users\justjo\Downloads\public_datasets/FasionMNIST/train-images-idx3-ubyte').reshape((-1, train.shape[1])) / 128. - 1.
+        train = read_idx(r'C:\Users\justjo\Downloads\public_datasets/FasionMNIST/train-images-idx3-ubyte')
+        train = train.reshape((train.shape[0],-1)) / 128. - 1.
         train_idx = np.arange(train.shape[0])
-        rng.shuffle(train_idx)
-        val = train_data[train_idx[-int(args.p_val * train.shape[0]):]]
-        train = train_data[train_idx[:-int(args.p_val * train.shape[0])]]
+        np.random.shuffle(train_idx)
+        val = train[-int(args.p_val * train.shape[0]):]
+        train = train[:-int(args.p_val * train.shape[0])]
         test = read_idx(r'C:\Users\justjo\Downloads\public_datasets/FasionMNIST/t10k-images-idx3-ubyte')
         test = test.reshape((test.shape[0], -1)) / 128. - 1.
+
+        fnames_data = [r'C:\Users\justjo\Downloads\public_datasets/MNIST/train-images.idx3-ubyte',
+                       r'C:\Users\justjo\Downloads\public_datasets/MNIST/t10k-images.idx3-ubyte']
+        cont_data = []
+        for f in fnames_data:
+            cont_data.append(read_idx(f))
+        cont_data = np.concatenate(cont_data)
+        cont_data = cont_data.reshape((cont_data.shape[0], -1))/128. - 1.
 
         # _, _, vh = scipy.linalg.svd(data, full_matrices=False)
         # data = np.matmul(data, vh.T)
@@ -88,20 +97,25 @@ def load_dataset(args):
         raise RuntimeError()
 
     # img_preprocessing_ = functools.partial(img_preprocessing, args=args)
-    img_preprocessing_ = functools.partial(dequantize)
+    img_preprocessing_ = dequantize
 
-    dataset_train = tf.data.Dataset.from_tensor_slices(train)#.float().to(args.device)
-    dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_train = tf.data.Dataset.from_tensor_slices(train.astype(np.float32))#.float().to(args.device)
+    # dataset_train = dataset_train.shuffle(buffer_size=len(train)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_train = dataset_train.shuffle(buffer_size=len(train)).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
 
-    dataset_valid = tf.data.Dataset.from_tensor_slices(val)#.float().to(args.device)
-    dataset_valid = dataset_valid.shuffle(buffer_size=len(val)).map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_valid = tf.data.Dataset.from_tensor_slices(val.astype(np.float32))#.float().to(args.device)
+    # dataset_valid = dataset_valid.map(img_preprocessing_, num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim*2).prefetch(buffer_size=args.prefetch_size)
+    dataset_valid = dataset_valid.batch(batch_size=args.batch_dim*2).prefetch(buffer_size=args.prefetch_size)
 
-    dataset_test = tf.data.Dataset.from_tensor_slices(test)#.float().to(args.device)
-    dataset_test = dataset_test.map(img_preprocessing_,num_parallel_calls=args.parallel).batch(batch_size=args.batch_dim).prefetch(buffer_size=args.prefetch_size)
+    dataset_test = tf.data.Dataset.from_tensor_slices(test.astype(np.float32))#.float().to(args.device)
+    dataset_test = dataset_test.batch(batch_size=args.batch_dim*2).prefetch(buffer_size=args.prefetch_size)
 
-    args.n_dims = img_preprocessing_(train[0]).shape[0]
+    dataset_cont = tf.data.Dataset.from_tensor_slices(cont_data.astype(np.float32))#.float().to(args.device)
+    dataset_cont = dataset_cont.batch(batch_size=args.batch_dim*2).prefetch(buffer_size=args.prefetch_size)
 
-    return dataset_train, dataset_valid, dataset_test
+    # args.n_dims = img_preprocessing_(train[0]).shape[0]
+    args.n_dims = train.shape[1]
+    return dataset_train, dataset_valid, dataset_test, dataset_cont
 
 def create_model(args, verbose=False):
 
@@ -118,32 +132,32 @@ def create_model(args, verbose=False):
     for f in range(args.flows):
         #build internal layers for a single flow
         layers = []
-        for _ in range(args.layers - 1):
-            layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
-                                       args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
-            layers.append(Tanh(dtype_in=dtype_in))
-
-        flows.append(
-            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
-               layers + \
-               [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
-             res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
-             )
-        )
-        ## with batch norm example
         # for _ in range(args.layers - 1):
         #     layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
         #                                args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
-        #     layers.append(CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum))
         #     layers.append(Tanh(dtype_in=dtype_in))
         #
         # flows.append(
-        #     BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum), Tanh(dtype_in=dtype_in)] + \
+        #     BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), Tanh(dtype_in=dtype_in)] + \
         #        layers + \
-        #        [CustomBatchnorm(scale=False, momentum=args.momentum), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+        #        [MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
         #      res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
         #      )
         # )
+        ## with batch norm example
+        for _ in range(args.layers - 1):
+            layers.append(MaskedWeight(args.n_dims * args.hidden_dim,
+                                       args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in))
+            layers.append(CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum))
+            layers.append(Tanh(dtype_in=dtype_in))
+
+        flows.append(
+            BNAF(layers = [MaskedWeight(args.n_dims, args.n_dims * args.hidden_dim, dim=args.n_dims, dtype_in=dtype_in), CustomBatchnorm(gamma_constraint = g_constraint, momentum=args.momentum), Tanh(dtype_in=dtype_in)] + \
+               layers + \
+               [CustomBatchnorm(scale=False, momentum=args.momentum), MaskedWeight(args.n_dims * args.hidden_dim, args.n_dims, dim=args.n_dims, dtype_in=dtype_in)], \
+             res=args.residual if f < args.flows - 1 else None, dtype_in= dtype_in
+             )
+        )
 
         if f < args.flows - 1:
             flows.append(Permutation(args.n_dims, 'flip'))
@@ -174,14 +188,21 @@ def load_model(args, root, load_start_epoch=False):
     # return f
 
 # @tf.function
-def compute_log_p_x(model, x_mb):
+# def compute_log_p_x(model, x_mb):
+#     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
+#     y_mb, log_diag_j_mb = model(x_mb)
+#     log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
+#     return log_p_y_mb + log_diag_j_mb
+
+## batch norm
+def compute_log_p_x(model, x_mb, training=False):
     ## use tf.gradient + tf.convert_to_tensor + tf.GradientTape(persistent=True) to clean up garbage implementation in bnaf.py
-    y_mb, log_diag_j_mb = model(x_mb)
+    y_mb, log_diag_j_mb = model(x_mb, training=training)
     log_p_y_mb = tf.reduce_sum(tfp.distributions.Normal(tf.zeros_like(y_mb), tf.ones_like(y_mb)).log_prob(y_mb), axis=-1)#.sum(-1)
     return log_p_y_mb + log_diag_j_mb
 
 # @tf.function
-def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args):
+def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, data_loader_cont, args):
     
     epoch = args.start_epoch
     for epoch in range(args.start_epoch, args.start_epoch + args.epochs):
@@ -191,7 +212,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         
         for x_mb in data_loader_train:
             with tf.GradientTape() as tape:
-                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb)) #negative -> minimize to maximize liklihood
+                loss = - tf.reduce_mean(compute_log_p_x(model, x_mb, training=True)) #negative -> minimize to maximize liklihood
 
             grads = tape.gradient(loss, model.trainable_variables)
             grads = [None if grad is None else tf.clip_by_norm(grad, clip_norm=args.clip_norm) for grad in grads]
@@ -202,7 +223,8 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             tf.compat.v1.train.get_global_step().assign_add(1)
 
         train_loss = np.mean(train_loss)
-        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
+        validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb, training=True)) for x_mb in data_loader_valid])
+        cont_loss =  tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb, training=False)) for x_mb in data_loader_cont])
 
         # print('Epoch {:3}/{:3} -- train_loss: {:4.3f} -- validation_loss: {:4.3f}'.format(
         #     epoch + 1, args.start_epoch + args.epochs, train_loss, validation_loss))
@@ -214,6 +236,7 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
             # with tf.contrib.summary.always_record_summaries():
                 tf.summary.scalar('loss/validation', validation_loss,tf.compat.v1.train.get_global_step())
                 tf.summary.scalar('loss/train', train_loss, tf.compat.v1.train.get_global_step())
+                tf.summary.scalar('loss/cont', cont_loss, tf.compat.v1.train.get_global_step())
                 # writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch + 1)
                 # writer.add_scalar('loss/validation', validation_loss.item(), epoch + 1)
                 # writer.add_scalar('loss/train', train_loss.item(), epoch + 1)
@@ -221,18 +244,19 @@ def train(model, optimizer, scheduler, data_loader_train, data_loader_valid, dat
         if stop:
             break
 
-    validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
-    test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_test])
-
-    print('###### Stop training after {} epochs!'.format(epoch + 1))
-    print('Validation loss: {:4.3f}'.format(validation_loss))
-    print('Test loss:       {:4.3f}'.format(test_loss))
+    # validation_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_valid])
+    # test_loss = - tf.reduce_mean([tf.reduce_mean(compute_log_p_x(model, x_mb)) for x_mb in data_loader_test])
+    #
+    # print('###### Stop training after {} epochs!'.format(epoch + 1))
+    # print('Validation loss: {:4.3f}'.format(validation_loss))
+    # print('Test loss:       {:4.3f}'.format(test_loss))
+    # print('Contrastive loss:       {:4.3f}'.format(cont_loss))
     
-    if args.save:
-        with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
-            print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
-            print('Validation loss: {:4.3f}'.format(validation_loss), file=f)
-            print('Test loss:       {:4.3f}'.format(test_loss), file=f)
+    # if args.save:
+    #     with open(os.path.join(args.load or args.path, 'results.txt'), 'a') as f:
+    #         print('###### Stop training after {} epochs!'.format(epoch + 1), file=f)
+    #         print('Validation loss: {:4.3f}'.format(validation_loss), file=f)
+    #         print('Test loss:       {:4.3f}'.format(test_loss), file=f)
 
 class parser_:
     pass
@@ -259,9 +283,9 @@ def main():
 
     args = parser_()
     args.device = '/gpu:0'  # '/gpu:0'
-    args.dataset = 'fmnist' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
+    args.dataset = 'MNIST' #'gq_ms_wheat_johnson'#'gq_ms_wheat_johnson' #['gas', 'bsds300', 'hepmass', 'miniboone', 'power']
     args.learning_rate = np.float32(1e-2)
-    args.batch_dim = 50
+    args.batch_dim = 200
     args.clip_norm = 0.1
     args.epochs = 5000
     args.patience = 10
@@ -283,7 +307,7 @@ def main():
     args.regL1 = -1
     args.manualSeed = None
     args.manualSeedw = None
-    args.momentum = 0.9 ## batch norm momentum
+    args.momentum = 0.95 ## batch norm momentum
     args.prefetch_size = 1 #data pipeline prefetch buffer size
     args.parallel = 16 #data pipeline parallel processes
     args.img_size = 0.25; ## resize img between 0 and 1
@@ -301,7 +325,7 @@ def main():
 
     print('Loading dataset..')
 
-    data_loader_train, data_loader_valid, data_loader_test = load_dataset(args)
+    data_loader_train, data_loader_valid, data_loader_test, data_loader_cont = load_dataset(args)
 
     if args.save and not args.load:
         print('Creating directory experiment..')
@@ -344,7 +368,7 @@ def main():
     scheduler = EarlyStopping(model=model, patience=args.early_stopping, args = args, root = root)
 
     with tf.device(args.device):
-        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, args)
+        train(model, optimizer, scheduler, data_loader_train, data_loader_valid, data_loader_test, data_loader_cont, args)
 
 
 if __name__ == '__main__':
